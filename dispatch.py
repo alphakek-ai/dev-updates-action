@@ -112,10 +112,39 @@ def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, 
     urllib.request.urlopen(req)
 
 
+def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
+    import tweepy
+
+    api_key = os.environ.get(ch.get("api_key_env", "TWITTER_API_KEY"), "")
+    api_secret = os.environ.get(ch.get("api_secret_env", "TWITTER_API_SECRET"), "")
+    access_token = os.environ.get(ch.get("access_token_env", "TWITTER_ACCESS_TOKEN"), "")
+    access_token_secret = os.environ.get(ch.get("access_token_secret_env", "TWITTER_ACCESS_TOKEN_SECRET"), "")
+
+    if not all([api_key, api_secret, access_token, access_token_secret]):
+        print("  WARNING: Twitter credentials incomplete, skipping")
+        return
+
+    client = tweepy.Client(
+        consumer_key=api_key,
+        consumer_secret=api_secret,
+        access_token=access_token,
+        access_token_secret=access_token_secret,
+    )
+
+    # Build tweet — strip markdown, add repo link, respect 280 char limit
+    link = f"https://github.com/{repo}"
+    max_content = 280 - len(link) - 2  # 2 for \n\n
+    text = content[:max_content].rsplit("\n", 1)[0] if len(content) > max_content else content
+    tweet = f"{text}\n\n{link}"
+
+    client.create_tweet(text=tweet)
+
+
 DISPATCHERS = {
     "telegram": send_telegram,
     "discord": send_discord,
     "slack": send_slack,
+    "twitter": send_twitter,
 }
 
 

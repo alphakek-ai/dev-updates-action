@@ -81,6 +81,17 @@ Each channel is a YAML block with:
 | `webhook_url` | Yes* | Slack incoming webhook URL |
 | `webhook_url_env` | Yes* | Or: env var name containing the webhook URL |
 
+### Twitter / X
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `api_key_env` | No | Env var name for API key (default: `TWITTER_API_KEY`) |
+| `api_secret_env` | No | Env var name for API secret (default: `TWITTER_API_SECRET`) |
+| `access_token_env` | No | Env var name for access token (default: `TWITTER_ACCESS_TOKEN`) |
+| `access_token_secret_env` | No | Env var name for access token secret (default: `TWITTER_ACCESS_TOKEN_SECRET`) |
+
+Tweets are auto-truncated to 280 chars with a link to the repo.
+
 ## Privacy Modes
 
 **Private** summaries include technical details — file paths, function names, what specifically changed. Good for dev team chats.

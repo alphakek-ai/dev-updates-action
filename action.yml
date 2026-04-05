@@ -95,7 +95,7 @@ runs:
         ${{ inputs.public_rules }}"
         fi
 
-        npx -y @anthropic-ai/claude-code -p "
+        npx -y @anthropic-ai/claude-code --allowedTools "Read,Write,Bash(git *)" -p "
         You have access to a git repo. The commit range for this push is ${BEFORE}..${AFTER}.
 
         1. Read the README (or any top-level docs) to understand what this project is.
@@ -110,16 +110,18 @@ runs:
         IMPORTANT: Use the Write tool to write each file. Do not output the summaries to stdout.
         " --max-turns 15 2>/dev/null
 
-        # Fallbacks
+        # Verify outputs
+        FAILED=false
         if [[ "$HAS_PRIVATE" == "true" && ! -s /tmp/summary_private.md ]]; then
-          echo "::warning::Claude Code did not produce private summary, falling back to commit messages"
-          printf "Update\n\n" > /tmp/summary_private.md
-          git log --pretty=format:"• %s" "${BEFORE}..${AFTER}" >> /tmp/summary_private.md
+          echo "::error::Claude Code did not produce private summary"
+          FAILED=true
         fi
         if [[ "$HAS_PUBLIC" == "true" && ! -s /tmp/summary_public.md ]]; then
-          echo "::warning::Claude Code did not produce public summary, falling back to commit messages"
-          printf "Update\n\n" > /tmp/summary_public.md
-          git log --pretty=format:"• %s" "${BEFORE}..${AFTER}" >> /tmp/summary_public.md
+          echo "::error::Claude Code did not produce public summary"
+          FAILED=true
+        fi
+        if [[ "$FAILED" == "true" ]]; then
+          exit 1
         fi
 
     - name: Install uv

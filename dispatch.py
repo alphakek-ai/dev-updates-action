@@ -113,27 +113,47 @@ def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, 
 
 
 def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
+    """Post tweet using OAuth 2.0 with PKCE (token refresh flow).
+
+    Uses the same OAuth 2.0 pattern as aikek-backend's TwitterClient.
+    The refresh token rotates on each use — the new one is written to
+    /tmp/twitter_refresh_token.txt for the action to update the GitHub secret.
+    """
     import tweepy
 
-    api_key = os.environ.get(ch.get("api_key_env", "TWITTER_API_KEY"), "")
-    api_secret = os.environ.get(ch.get("api_secret_env", "TWITTER_API_SECRET"), "")
-    access_token = os.environ.get(ch.get("access_token_env", "TWITTER_ACCESS_TOKEN"), "")
-    access_token_secret = os.environ.get(ch.get("access_token_secret_env", "TWITTER_ACCESS_TOKEN_SECRET"), "")
+    client_id = os.environ.get(ch.get("client_id_env", "TWITTER_CLIENT_ID"), "")
+    client_secret = os.environ.get(ch.get("client_secret_env", "TWITTER_CLIENT_SECRET"), "")
+    refresh_token = os.environ.get(ch.get("refresh_token_env", "TWITTER_REFRESH_TOKEN"), "")
 
-    if not all([api_key, api_secret, access_token, access_token_secret]):
-        print("  WARNING: Twitter credentials incomplete, skipping")
+    if not all([client_id, client_secret, refresh_token]):
+        print("  WARNING: Twitter OAuth2 credentials incomplete, skipping")
         return
 
-    client = tweepy.Client(
-        consumer_key=api_key,
-        consumer_secret=api_secret,
-        access_token=access_token,
-        access_token_secret=access_token_secret,
+    # Refresh the access token (same pattern as aikek_legacy/bots/twitter/client.py:227)
+    oauth2_handler = tweepy.OAuth2UserHandler(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri="https://alphakek.ai/callback",
+        scope=["tweet.read", "tweet.write", "users.read", "offline.access"],
     )
 
-    # Build tweet — strip markdown, add repo link, respect 280 char limit
+    token_data = oauth2_handler.refresh_token(
+        token_url="https://api.twitter.com/2/oauth2/token",
+        refresh_token=refresh_token,
+    )
+
+    new_access_token = token_data["access_token"]
+    new_refresh_token = token_data.get("refresh_token", refresh_token)
+
+    # Save the new refresh token so the action can update the GitHub secret
+    with open("/tmp/twitter_refresh_token.txt", "w") as f:
+        f.write(new_refresh_token)
+
+    # Post tweet
+    client = tweepy.Client(new_access_token)
+
     link = f"https://github.com/{repo}"
-    max_content = 280 - len(link) - 2  # 2 for \n\n
+    max_content = 280 - len(link) - 2
     text = content[:max_content].rsplit("\n", 1)[0] if len(content) > max_content else content
     tweet = f"{text}\n\n{link}"
 

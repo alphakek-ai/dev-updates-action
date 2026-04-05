@@ -1,0 +1,132 @@
+name: 'Dev Updates'
+description: 'AI-powered dev update notifications with privacy modes and multi-channel dispatch'
+author: 'alphakek-ai'
+
+branding:
+  icon: 'send'
+  color: 'purple'
+
+inputs:
+  channels:
+    description: 'YAML list of channel configurations'
+    required: true
+  public_rules:
+    description: 'Instructions for public summaries'
+    required: false
+    default: |
+      Describe changes in terms of user-facing impact only.
+      Do not mention file paths, function names, class names, or internal architecture.
+      Do not mention specific technologies, databases, or infrastructure details.
+      Write as if announcing to end users who do not know the codebase.
+  private_rules:
+    description: 'Instructions for private summaries'
+    required: false
+    default: |
+      Include technical details: file paths, function names, what specifically changed and why.
+      Be precise and specific. This is for the dev team.
+  title_style:
+    description: 'Style for the update title'
+    required: false
+    default: 'catchy, under 40 chars'
+  max_bullets:
+    description: 'Maximum number of bullet points per summary'
+    required: false
+    default: '5'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get commit range
+      id: range
+      shell: bash
+      run: |
+        BEFORE="${{ github.event.before }}"
+        AFTER="${{ github.event.after }}"
+        if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+          BEFORE="${AFTER}~1"
+        fi
+        echo "before=${BEFORE}" >> "$GITHUB_OUTPUT"
+        echo "after=${AFTER}" >> "$GITHUB_OUTPUT"
+        echo "commit_count=$(git rev-list --count "${BEFORE}..${AFTER}" 2>/dev/null || echo 1)" >> "$GITHUB_OUTPUT"
+        echo "files_changed=$(git diff --name-only "${BEFORE}" "${AFTER}" 2>/dev/null | wc -l || echo 0)" >> "$GITHUB_OUTPUT"
+
+    - name: Detect required modes
+      id: modes
+      shell: bash
+      run: |
+        CHANNELS='${{ inputs.channels }}'
+        HAS_PRIVATE=$(echo "$CHANNELS" | grep -c 'mode:.*private' || true)
+        HAS_PUBLIC=$(echo "$CHANNELS" | grep -c 'mode:.*public' || true)
+        echo "has_private=$([[ $HAS_PRIVATE -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        echo "has_public=$([[ $HAS_PUBLIC -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+    - name: Generate private summary
+      if: steps.modes.outputs.has_private == 'true'
+      shell: bash
+      run: |
+        BEFORE="${{ steps.range.outputs.before }}"
+        AFTER="${{ steps.range.outputs.after }}"
+        npx -y @anthropic-ai/claude-code -p "
+        You have access to a git repo. The commit range for this push is ${BEFORE}..${AFTER}.
+
+        1. Read the README (or any top-level docs) to understand what this project is.
+        2. Use git log, git diff, and any other tools to understand what changed.
+
+        Then output EXACTLY this format (nothing else):
+        - First line: a ${{ inputs.title_style }} title for this update
+        - Second line: empty
+        - Remaining lines: terse bullet-point summary (max ${{ inputs.max_bullets }} lines)
+
+        Rules for bullets:
+        - One line per logical change
+        - Each line: emoji + short phrase (under 60 chars)
+        - Focus on what changed and why
+
+        Additional rules:
+        ${{ inputs.private_rules }}
+        " --max-turns 10 > /tmp/summary_private.txt 2>/dev/null || true
+
+        if [ ! -s /tmp/summary_private.txt ]; then
+          printf "Update\n\n" > /tmp/summary_private.txt
+          git log --pretty=format:"• %s" "${BEFORE}..${AFTER}" >> /tmp/summary_private.txt
+        fi
+
+    - name: Generate public summary
+      if: steps.modes.outputs.has_public == 'true'
+      shell: bash
+      run: |
+        BEFORE="${{ steps.range.outputs.before }}"
+        AFTER="${{ steps.range.outputs.after }}"
+        npx -y @anthropic-ai/claude-code -p "
+        You have access to a git repo. The commit range for this push is ${BEFORE}..${AFTER}.
+
+        1. Read the README (or any top-level docs) to understand what this project is.
+        2. Use git log, git diff, and any other tools to understand what changed.
+
+        Then output EXACTLY this format (nothing else):
+        - First line: a ${{ inputs.title_style }} title for this update
+        - Second line: empty
+        - Remaining lines: terse bullet-point summary (max ${{ inputs.max_bullets }} lines)
+
+        Rules for bullets:
+        - One line per logical change
+        - Each line: emoji + short phrase (under 60 chars)
+        - Focus on user-facing impact
+
+        CRITICAL privacy rules:
+        ${{ inputs.public_rules }}
+        " --max-turns 10 > /tmp/summary_public.txt 2>/dev/null || true
+
+        if [ ! -s /tmp/summary_public.txt ]; then
+          printf "Update\n\n" > /tmp/summary_public.txt
+          git log --pretty=format:"• %s" "${BEFORE}..${AFTER}" >> /tmp/summary_public.txt
+        fi
+
+    - name: Dispatch to channels
+      shell: bash
+      env:
+        CHANNELS: ${{ inputs.channels }}
+        REPO: ${{ github.repository }}
+        COMMITS: ${{ steps.range.outputs.commit_count }}
+        FILES: ${{ steps.range.outputs.files_changed }}
+      run: python3 ${{ github.action_path }}/dispatch.py

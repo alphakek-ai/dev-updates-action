@@ -88,7 +88,8 @@ runs:
         Rules for bullets:
         - One line per logical change
         - Each line: emoji + short phrase (under 60 chars)
-        - Focus on what changed and why
+        - NEVER use backticks, markdown formatting, or code blocks
+        - Plain text only — no *, **, `, ```, _, or []() syntax
 
         Additional rules:
         ${{ inputs.private_rules }}

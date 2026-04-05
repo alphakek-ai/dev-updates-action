@@ -102,15 +102,10 @@ runs:
         2. Use git log, git diff, and any other tools to understand what changed.
         3. ${TASK}
 
-        Each summary file must have EXACTLY this format:
-        - First line: a ${{ inputs.title_style }} title for this update
-        - Second line: empty
-        - Remaining lines: terse bullet-point summary (max ${{ inputs.max_bullets }} lines)
-
-        Rules for bullets:
-        - One line per logical change
-        - Each line: emoji + short phrase (under 60 chars)
-        - Use markdown formatting where appropriate (bold, backticks, etc)
+        Each summary file should be a complete, well-formatted markdown message ready to send.
+        Include a bold title, then bullet points summarizing the changes (max ${{ inputs.max_bullets }} bullets).
+        Use markdown formatting naturally (bold, backticks, etc).
+        Keep it concise — each bullet should be one line with an emoji prefix.
 
         IMPORTANT: Use the Write tool to write each file. Do not output the summaries to stdout.
         " --max-turns 15 2>/dev/null

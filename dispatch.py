@@ -34,24 +34,16 @@ def parse_channels(yaml_text: str) -> list[dict]:
     return channels
 
 
-def load_summary(mode: str) -> tuple[str, str]:
-    """Load summary file and split into title + body."""
+def load_summary(mode: str) -> str:
+    """Load summary markdown file. Returns empty string if not found."""
     path = f"/tmp/summary_{mode}.md"
     try:
-        content = open(path).read().strip()
+        return open(path).read().strip()
     except FileNotFoundError:
-        return "", ""
-    lines = content.split("\n")
-    title = lines[0] if lines else "Update"
-    body = "\n".join(lines[2:]) if len(lines) > 2 else ""
-    return title, body
+        return ""
 
 
-def escape_html(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def send_telegram(ch: dict, title: str, body: str, repo: str, repo_name: str, commits: str, files: str) -> None:
+def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
     from telegramify_markdown import markdownify
 
     chat_id = ch.get("chat_id", "")
@@ -63,7 +55,7 @@ def send_telegram(ch: dict, title: str, body: str, repo: str, repo_name: str, co
         print(f"  WARNING: {bot_token_env} not set, skipping")
         return
 
-    md_text = f"📦 **{title}**\n\n{body}\n\n[{repo_name} · {commits} commit(s) · {files} file(s)](https://github.com/{repo})"
+    md_text = f"{content}\n\n[{repo_name} · {commits} commit(s) · {files} file(s)](https://github.com/{repo})"
     text = markdownify(md_text)
 
     if len(text) > 4000:
@@ -86,13 +78,13 @@ def send_telegram(ch: dict, title: str, body: str, repo: str, repo_name: str, co
     urllib.request.urlopen(req)
 
 
-def send_discord(ch: dict, title: str, body: str, repo: str, repo_name: str, commits: str, files: str) -> None:
+def send_discord(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
     webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
     if not webhook_url:
         print("  WARNING: No webhook URL, skipping")
         return
 
-    text = f"📦 **{title}**\n\n{body}\n\n[{repo_name}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)"
+    text = f"{content}\n\n[{repo_name}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)"
     payload = {"content": text[:2000]}
 
     req = urllib.request.Request(
@@ -103,13 +95,13 @@ def send_discord(ch: dict, title: str, body: str, repo: str, repo_name: str, com
     urllib.request.urlopen(req)
 
 
-def send_slack(ch: dict, title: str, body: str, repo: str, repo_name: str, commits: str, files: str) -> None:
+def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
     webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
     if not webhook_url:
         print("  WARNING: No webhook URL, skipping")
         return
 
-    text = f"📦 *{title}*\n\n{body}\n\n<https://github.com/{repo}|{repo_name}> · {commits} commit(s) · {files} file(s)"
+    text = f"{content}\n\n<https://github.com/{repo}|{repo_name}> · {commits} commit(s) · {files} file(s)"
     payload = {"text": text[:3000]}
 
     req = urllib.request.Request(
@@ -146,8 +138,8 @@ def main() -> None:
         ch_type = ch.get("type", "telegram")
         mode = ch.get("mode", "private")
 
-        title, body = load_summary(mode)
-        if not title:
+        content = load_summary(mode)
+        if not content:
             print(f"WARNING: No {mode} summary generated, skipping {name}")
             continue
 
@@ -157,7 +149,7 @@ def main() -> None:
             continue
 
         try:
-            dispatcher(ch, title, body, repo, repo_name, commits, files)
+            dispatcher(ch, content, repo, repo_name, commits, files)
             print(f"OK: {name} ({ch_type}, {mode})")
             successes += 1
         except Exception as e:

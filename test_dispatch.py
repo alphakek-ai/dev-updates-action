@@ -1,9 +1,8 @@
-"""Tests for dispatch.py — channel parsing, summary loading, HTML escaping."""
+"""Tests for dispatch.py — channel parsing, summary loading."""
 
 import os
-import tempfile
 
-from dispatch import escape_html, load_summary, parse_channels
+from dispatch import load_summary, parse_channels
 
 
 class TestParseChannels:
@@ -97,52 +96,23 @@ class TestParseChannels:
 
 
 class TestLoadSummary:
-    def test_loads_existing_file(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp", prefix="summary_test_") as f:
-            f.write("My Title\n\n🔧 Fixed a bug\n🚀 Added a feature")
-            path = f.name
-
-        # Monkey-patch the path pattern
-        mode = path.split("summary_")[1].replace(".txt", "")
-        title, body = load_summary(mode)
-        # Won't match because load_summary hardcodes /tmp/summary_{mode}.txt
-        # So test with the actual pattern:
-        os.unlink(path)
-
     def test_returns_empty_for_missing_file(self):
-        title, body = load_summary("nonexistent_mode_xyz")
-        assert title == ""
-        assert body == ""
+        assert load_summary("nonexistent_mode_xyz") == ""
 
-    def test_splits_title_and_body(self):
+    def test_loads_content(self):
         with open("/tmp/summary_testmode.md", "w") as f:
-            f.write("My Title\n\n🔧 Fixed a bug\n🚀 Added a feature")
+            f.write("📦 **My Update**\n\n🔧 Fixed a bug\n🚀 Added a feature")
 
-        title, body = load_summary("testmode")
-        assert title == "My Title"
-        assert "Fixed a bug" in body
-        assert "Added a feature" in body
+        content = load_summary("testmode")
+        assert "My Update" in content
+        assert "Fixed a bug" in content
+        assert "Added a feature" in content
         os.unlink("/tmp/summary_testmode.md")
 
-    def test_title_only(self):
-        with open("/tmp/summary_titleonly.md", "w") as f:
-            f.write("Just A Title")
+    def test_strips_whitespace(self):
+        with open("/tmp/summary_striptest.md", "w") as f:
+            f.write("  \n  content here  \n  ")
 
-        title, body = load_summary("titleonly")
-        assert title == "Just A Title"
-        assert body == ""
-        os.unlink("/tmp/summary_titleonly.md")
-
-
-class TestEscapeHtml:
-    def test_escapes_ampersand(self):
-        assert escape_html("A & B") == "A &amp; B"
-
-    def test_escapes_angle_brackets(self):
-        assert escape_html("<script>alert</script>") == "&lt;script&gt;alert&lt;/script&gt;"
-
-    def test_preserves_normal_text(self):
-        assert escape_html("Hello World 123") == "Hello World 123"
-
-    def test_escapes_all_together(self):
-        assert escape_html("a < b & c > d") == "a &lt; b &amp; c &gt; d"
+        content = load_summary("striptest")
+        assert content == "content here"
+        os.unlink("/tmp/summary_striptest.md")

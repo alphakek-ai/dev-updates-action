@@ -115,23 +115,23 @@ class TestLoadSummary:
         assert body == ""
 
     def test_splits_title_and_body(self):
-        with open("/tmp/summary_testmode.txt", "w") as f:
+        with open("/tmp/summary_testmode.md", "w") as f:
             f.write("My Title\n\n🔧 Fixed a bug\n🚀 Added a feature")
 
         title, body = load_summary("testmode")
         assert title == "My Title"
         assert "Fixed a bug" in body
         assert "Added a feature" in body
-        os.unlink("/tmp/summary_testmode.txt")
+        os.unlink("/tmp/summary_testmode.md")
 
     def test_title_only(self):
-        with open("/tmp/summary_titleonly.txt", "w") as f:
+        with open("/tmp/summary_titleonly.md", "w") as f:
             f.write("Just A Title")
 
         title, body = load_summary("titleonly")
         assert title == "Just A Title"
         assert body == ""
-        os.unlink("/tmp/summary_titleonly.txt")
+        os.unlink("/tmp/summary_titleonly.md")
 
 
 class TestEscapeHtml:

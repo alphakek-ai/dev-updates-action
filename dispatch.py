@@ -36,7 +36,7 @@ def parse_channels(yaml_text: str) -> list[dict]:
 
 def load_summary(mode: str) -> tuple[str, str]:
     """Load summary file and split into title + body."""
-    path = f"/tmp/summary_{mode}.txt"
+    path = f"/tmp/summary_{mode}.md"
     try:
         content = open(path).read().strip()
     except FileNotFoundError:
@@ -52,6 +52,8 @@ def escape_html(text: str) -> str:
 
 
 def send_telegram(ch: dict, title: str, body: str, repo: str, repo_name: str, commits: str, files: str) -> None:
+    from telegramify_markdown import markdownify
+
     chat_id = ch.get("chat_id", "")
     thread_id = ch.get("thread_id")
     bot_token_env = ch.get("bot_token_env", "TELEGRAM_BOT_TOKEN")
@@ -61,18 +63,15 @@ def send_telegram(ch: dict, title: str, body: str, repo: str, repo_name: str, co
         print(f"  WARNING: {bot_token_env} not set, skipping")
         return
 
-    title_h = escape_html(title)
-    body_h = escape_html(body)
-    text = (
-        f'📦 <b>{title_h}</b>\n\n{body_h}\n\n'
-        f'<a href="https://github.com/{repo}">{repo_name} · {commits} commit(s) · {files} file(s)</a>'
-    )
+    md_text = f"📦 **{title}**\n\n{body}\n\n[{repo_name} · {commits} commit(s) · {files} file(s)](https://github.com/{repo})"
+    text = markdownify(md_text)
+
     if len(text) > 4000:
         text = text[:3997] + "..."
 
     payload: dict = {
         "chat_id": chat_id,
-        "parse_mode": "HTML",
+        "parse_mode": "MarkdownV2",
         "text": text,
         "disable_web_page_preview": True,
     }

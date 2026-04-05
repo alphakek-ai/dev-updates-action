@@ -114,6 +114,8 @@ def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, 
 
 def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
     """Post tweet using OAuth 1.0a (static keys, no token rotation)."""
+    import re
+
     import tweepy
 
     api_key = os.environ.get(ch.get("api_key_env", "TWITTER_API_KEY"), "")
@@ -132,9 +134,19 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
         access_token_secret=access_token_secret,
     )
 
+    # Strip markdown — Twitter renders plain text only
+    plain = content
+    plain = re.sub(r"```.*?```", "", plain, flags=re.DOTALL)  # code blocks
+    plain = re.sub(r"`([^`]+)`", r"\1", plain)  # inline code
+    plain = re.sub(r"\*\*(.+?)\*\*", r"\1", plain)  # bold
+    plain = re.sub(r"\*(.+?)\*", r"\1", plain)  # italic
+    plain = re.sub(r"_(.+?)_", r"\1", plain)  # italic
+    plain = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", plain)  # links → text only
+    plain = re.sub(r"\n{3,}", "\n\n", plain).strip()  # collapse blank lines
+
     link = f"https://github.com/{repo}"
     max_content = 280 - len(link) - 2
-    text = content[:max_content].rsplit("\n", 1)[0] if len(content) > max_content else content
+    text = plain[:max_content].rsplit("\n", 1)[0] if len(plain) > max_content else plain
     tweet = f"{text}\n\n{link}"
 
     client.create_tweet(text=tweet)

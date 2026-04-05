@@ -136,14 +136,3 @@ runs:
         FILES: ${{ steps.range.outputs.files_changed }}
       run: uv run --with telegramify-markdown --with tweepy python3 ${{ github.action_path }}/dispatch.py
 
-    - name: Update Twitter refresh token
-      if: hashFiles('/tmp/twitter_refresh_token.txt') != ''
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        if [ -f /tmp/twitter_refresh_token.txt ]; then
-          NEW_TOKEN=$(cat /tmp/twitter_refresh_token.txt)
-          gh secret set TWITTER_REFRESH_TOKEN --body "$NEW_TOKEN" --repo "${{ github.repository }}"
-          echo "Updated TWITTER_REFRESH_TOKEN secret"
-        fi

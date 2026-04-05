@@ -139,6 +139,9 @@ def main() -> None:
         print("ERROR: No channels configured")
         sys.exit(1)
 
+    successes = 0
+    failures = 0
+
     for ch in channels:
         name = ch.get("name", ch.get("type", "unknown"))
         ch_type = ch.get("type", "telegram")
@@ -157,8 +160,16 @@ def main() -> None:
         try:
             dispatcher(ch, title, body, repo, repo_name, commits, files)
             print(f"OK: {name} ({ch_type}, {mode})")
+            successes += 1
         except Exception as e:
             print(f"ERROR: {name} ({ch_type}): {e}")
+            failures += 1
+
+    if successes == 0 and failures > 0:
+        print(f"FATAL: All {failures} channel(s) failed")
+        sys.exit(1)
+    elif failures > 0:
+        print(f"WARNING: {failures}/{successes + failures} channel(s) failed")
 
 
 if __name__ == "__main__":

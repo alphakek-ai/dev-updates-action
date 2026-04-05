@@ -60,6 +60,14 @@ runs:
         echo "has_private=$([[ $HAS_PRIVATE -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
         echo "has_public=$([[ $HAS_PUBLIC -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
+    - name: Check required secrets
+      shell: bash
+      run: |
+        if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+          echo "::error::CLAUDE_CODE_OAUTH_TOKEN is not set. Add it as a repository secret."
+          exit 1
+        fi
+
     - name: Generate private summary
       if: steps.modes.outputs.has_private == 'true'
       shell: bash
@@ -84,9 +92,10 @@ runs:
 
         Additional rules:
         ${{ inputs.private_rules }}
-        " --max-turns 10 > /tmp/summary_private.txt 2>/dev/null || true
+        " --max-turns 10 > /tmp/summary_private.txt 2>/dev/null
 
         if [ ! -s /tmp/summary_private.txt ]; then
+          echo "::warning::Claude Code produced empty output for private summary, falling back to commit messages"
           printf "Update\n\n" > /tmp/summary_private.txt
           git log --pretty=format:"• %s" "${BEFORE}..${AFTER}" >> /tmp/summary_private.txt
         fi
@@ -115,9 +124,10 @@ runs:
 
         CRITICAL privacy rules:
         ${{ inputs.public_rules }}
-        " --max-turns 10 > /tmp/summary_public.txt 2>/dev/null || true
+        " --max-turns 10 > /tmp/summary_public.txt 2>/dev/null
 
         if [ ! -s /tmp/summary_public.txt ]; then
+          echo "::warning::Claude Code produced empty output for public summary, falling back to commit messages"
           printf "Update\n\n" > /tmp/summary_public.txt
           git log --pretty=format:"• %s" "${BEFORE}..${AFTER}" >> /tmp/summary_public.txt
         fi

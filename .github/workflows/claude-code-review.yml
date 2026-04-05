@@ -3,27 +3,16 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
+      issues: write
       id-token: write
+      actions: read
 
     steps:
       - name: Checkout repository
@@ -36,9 +25,31 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
 
+            Review this pull request. Post a single comprehensive review comment (not inline comments).
+
+            Check for:
+            - Bugs, logic errors, edge cases, and security vulnerabilities
+            - Performance issues
+            - Code that is hard to read, consume, test, evolve, or extend
+            - Unnecessary complexity — simpler and easier to understand is always better
+            - Unnecessary possible states — minimize them
+            - Missing asserts when loading data; parameters that are optional but shouldn't be
+            - Code that could be fewer lines without losing clarity
+            - Complex or clever code that should be straightforward
+            - Functions broken out without justification — fewer functions is better unless there's a clear reason
+            - Unnecessary overrides or high argument counts
+            - Arguments marked optional that are actually required
+            - Missing early returns
+            - Tech partitioning where domain partitioning would be better
+            - Correctness against the project's CLAUDE.md guidelines
+
+            Structure your review as a single comprehensive comment on the PR.
+            Skip formatting nits and style preferences — focus on things that matter.
+
+          claude_args: |
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"

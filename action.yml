@@ -50,9 +50,10 @@ runs:
       run: |
         mkdir -p /tmp/state
 
-        # Find the latest successful run of this workflow
-        RUN_ID=$(gh api "repos/$REPO/actions/workflows/$(basename ${{ github.workflow }})/runs?status=success&per_page=1" \
-          --jq '.workflow_runs[0].id' 2>/dev/null || echo "")
+        # Find the latest successful run of this workflow (exclude current run)
+        CURRENT_RUN_ID="${{ github.run_id }}"
+        RUN_ID=$(gh api "repos/$REPO/actions/runs?status=success&per_page=5" \
+          --jq "[.workflow_runs[] | select(.name==\"${{ github.workflow }}\" and .id != ${CURRENT_RUN_ID})][0].id" 2>/dev/null || echo "")
 
         if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
           echo "::notice::No previous successful run found."

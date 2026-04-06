@@ -150,7 +150,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '0 */6 * * *'  # safety net — catches skipped updates
+    - cron: '0 */12 * * *'  # safety net — catches skipped updates
 
 jobs:
   notify:
@@ -166,7 +166,7 @@ jobs:
 
       - uses: alphakek-ai/dev-updates-action@v1
         with:
-          cooldown: '6h'  # post at most once per 6 hours
+          cooldown: '12h'  # post at most once per 12 hours
           channels: |
             ...
 ```

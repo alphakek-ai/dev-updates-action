@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */12 * * *'
 
 jobs:
   notify:
@@ -20,7 +20,7 @@ jobs:
 
       - uses: ./  # use itself
         with:
-          cooldown: '6h'
+          cooldown: '12h'
           channels: |
             - name: dev-updates-action-releases
               type: telegram

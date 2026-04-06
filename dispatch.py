@@ -55,7 +55,12 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
         print(f"  WARNING: {bot_token_env} not set, skipping")
         return
 
-    md_text = f"{content}\n\n[{repo_name} · {commits} commit(s) · {files} file(s)](https://github.com/{repo})"
+    mode = ch.get("mode", "private")
+    if mode == "public":
+        footer = f"{repo_name} · {commits} commit(s) · {files} file(s)"
+    else:
+        footer = f"[{repo_name} · {commits} commit(s) · {files} file(s)](https://github.com/{repo})"
+    md_text = f"{content}\n\n{footer}"
     text = markdownify(md_text)
 
     if len(text) > 4000:
@@ -145,9 +150,11 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
     plain = re.sub(r"\n{3,}", "\n\n", plain).strip()  # collapse blank lines
 
     link = f"https://github.com/{repo}"
-    max_content = 280 - len(link) - 2
+    footer = f"{repo_name} · {commits} commit(s) · {files} file(s)"
+    reserved = len(footer) + len(link) + 4  # 4 for two \n\n separators
+    max_content = 280 - reserved
     text = plain[:max_content].rsplit("\n", 1)[0] if len(plain) > max_content else plain
-    tweet = f"{text}\n\n{link}"
+    tweet = f"{text}\n\n{footer}\n{link}"
 
     client.create_tweet(text=tweet)
 

@@ -158,7 +158,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      variables: write  # required for cooldown state
+      actions: write  # required for cooldown state
     steps:
       - uses: actions/checkout@v4
         with:
@@ -179,13 +179,13 @@ How it works:
 
 Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
 
-**Important:** Add `variables: write` to your workflow permissions when using cooldown. Without it, the action degrades to realtime mode (posts on every push).
+**Important:** Add `actions: write` to your workflow permissions when using cooldown. Without it, the action degrades to realtime mode (posts on every push).
 
 ## Requirements
 
 - `CLAUDE_CODE_OAUTH_TOKEN` secret — for Claude Code ([get one here](https://console.anthropic.com))
 - Channel-specific tokens/webhooks as secrets
-- `variables: write` permission (only if using cooldown)
+- `actions: write` permission (only if using cooldown)
 
 ## License
 

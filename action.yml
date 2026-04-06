@@ -43,13 +43,35 @@ runs:
     # --- Load state from previous run ---
     - name: Load previous state
       if: inputs.cooldown != ''
-      uses: dawidd6/action-download-artifact@v6
-      with:
-        name: dev-updates-state
-        workflow: ${{ github.workflow }}
-        workflow_conclusion: success
-        if_no_artifact_found: ignore
-        path: /tmp/state
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+      run: |
+        mkdir -p /tmp/state
+
+        # Find the latest successful run of this workflow
+        RUN_ID=$(gh api "repos/$REPO/actions/workflows/$(basename ${{ github.workflow }})/runs?status=success&per_page=1" \
+          --jq '.workflow_runs[0].id' 2>/dev/null || echo "")
+
+        if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
+          echo "::notice::No previous successful run found."
+          exit 0
+        fi
+
+        # Find the artifact in that run
+        ARTIFACT_URL=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+          --jq '.artifacts[] | select(.name=="dev-updates-state") | .archive_download_url' 2>/dev/null || echo "")
+
+        if [[ -z "$ARTIFACT_URL" || "$ARTIFACT_URL" == "null" ]]; then
+          echo "::notice::Previous run had no state artifact."
+          exit 0
+        fi
+
+        # Download and extract
+        gh api "$ARTIFACT_URL" > /tmp/state/artifact.zip 2>/dev/null || { echo "::notice::Failed to download artifact."; exit 0; }
+        unzip -o -q /tmp/state/artifact.zip -d /tmp/state 2>/dev/null || { echo "::notice::Failed to unzip artifact."; exit 0; }
+        echo "::notice::Loaded state artifact from run $RUN_ID"
 
     - name: Get commit range
       id: range

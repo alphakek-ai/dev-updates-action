@@ -3,6 +3,8 @@ name: Self Report
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '0 */6 * * *'
 
 jobs:
   notify:
@@ -10,6 +12,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -17,6 +20,7 @@ jobs:
 
       - uses: ./  # use itself
         with:
+          cooldown: '6h'
           channels: |
             - name: dev-updates-action-releases
               type: telegram

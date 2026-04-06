@@ -27,7 +27,7 @@ jobs:
             - name: alphakek-groupchat
               type: telegram
               chat_id: "-1001982990617"
-              mode: public
+              mode: private
 
             - name: aikek-agent-twitter
               type: twitter

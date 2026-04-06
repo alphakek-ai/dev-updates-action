@@ -40,6 +40,17 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    # --- Load state from previous run ---
+    - name: Load previous state
+      if: inputs.cooldown != ''
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        name: dev-updates-state
+        workflow: ${{ github.workflow }}
+        workflow_conclusion: success
+        if_no_artifact_found: ignore
+        path: /tmp/state
+
     - name: Get commit range
       id: range
       shell: bash
@@ -48,8 +59,6 @@ runs:
         EVENT_NAME: ${{ github.event_name }}
         EVENT_BEFORE: ${{ github.event.before }}
         EVENT_AFTER: ${{ github.event.after }}
-        GH_TOKEN: ${{ github.token }}
-        REPO: ${{ github.repository }}
       run: |
         HEAD_SHA=$(git rev-parse HEAD)
 
@@ -69,42 +78,52 @@ runs:
             COOLDOWN_SECONDS=$COOLDOWN
           fi
 
-          # Read state variables
-          LAST_SHA=$(gh api "repos/$REPO/actions/variables/DEV_UPDATES_LAST_SHA" --jq '.value' 2>/dev/null || echo "")
-          LAST_AT=$(gh api "repos/$REPO/actions/variables/DEV_UPDATES_LAST_AT" --jq '.value' 2>/dev/null || echo "0")
+          # Read state from previous run's artifact
+          LAST_SHA=""
+          LAST_AT="0"
+          if [[ -f /tmp/state/dev-updates-state.json ]]; then
+            LAST_SHA=$(python3 -c "import json; d=json.load(open('/tmp/state/dev-updates-state.json')); print(d.get('last_sha',''))")
+            LAST_AT=$(python3 -c "import json; d=json.load(open('/tmp/state/dev-updates-state.json')); print(d.get('last_at','0'))")
+            echo "::notice::Loaded state from previous run: sha=${LAST_SHA:0:8}, at=${LAST_AT}"
+          else
+            echo "::notice::No previous state found (first run or artifact expired)."
+          fi
+
           NOW=$(date +%s)
 
           # On push: check cooldown
-          if [[ "$EVENT_NAME" == "push" && -n "$LAST_AT" && "$LAST_AT" != "0" ]]; then
+          if [[ "$EVENT_NAME" == "push" && "$LAST_AT" != "0" ]]; then
             ELAPSED=$(( NOW - LAST_AT ))
             if (( ELAPSED < COOLDOWN_SECONDS )); then
               REMAINING=$(( COOLDOWN_SECONDS - ELAPSED ))
               echo "::notice::Within cooldown (${ELAPSED}s elapsed, ${REMAINING}s remaining). Cron will catch up."
               echo "skip=true" >> "$GITHUB_OUTPUT"
+              # Forward the state unchanged
+              echo "forward_sha=${LAST_SHA}" >> "$GITHUB_OUTPUT"
+              echo "forward_at=${LAST_AT}" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
 
           # Determine commit range from state
           if [[ -z "$LAST_SHA" ]]; then
-            # First run
             BEFORE="${HEAD_SHA}~1"
-            echo "::notice::First run — no previous state. Summarizing latest commit."
+            echo "::notice::First run — summarizing latest commit."
           elif ! git merge-base --is-ancestor "$LAST_SHA" "$HEAD_SHA" 2>/dev/null; then
-            # SHA was force-pushed away
             BEFORE=$(git rev-list -1 --before="24 hours ago" HEAD 2>/dev/null || echo "${HEAD_SHA}~10")
-            echo "::warning::Last notified SHA ($LAST_SHA) not in history (force push?). Falling back."
+            echo "::warning::Last notified SHA (${LAST_SHA:0:8}) not in history. Falling back."
           elif [[ "$LAST_SHA" == "$HEAD_SHA" ]]; then
-            # No new commits
             echo "::notice::No new commits since last notification."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "forward_sha=${LAST_SHA}" >> "$GITHUB_OUTPUT"
+            echo "forward_at=${LAST_AT}" >> "$GITHUB_OUTPUT"
             exit 0
           else
             BEFORE="$LAST_SHA"
           fi
           AFTER="$HEAD_SHA"
         else
-          # --- No cooldown: realtime mode (current behavior) ---
+          # --- No cooldown: realtime mode ---
           BEFORE="$EVENT_BEFORE"
           AFTER="$EVENT_AFTER"
           if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
@@ -148,7 +167,6 @@ runs:
         BEFORE="${{ steps.range.outputs.before }}"
         AFTER="${{ steps.range.outputs.after }}"
 
-        # Build the prompt based on which modes are needed
         TASK=""
         if [[ "$HAS_PRIVATE" == "true" && "$HAS_PUBLIC" == "true" ]]; then
           TASK="Write TWO summaries and save them using the Write tool:
@@ -181,7 +199,6 @@ runs:
         IMPORTANT: Use the Write tool to write each file. Do not output the summaries to stdout.
         " --max-turns 15 2>/dev/null
 
-        # Verify outputs
         FAILED=false
         if [[ "$HAS_PRIVATE" == "true" && ! -s /tmp/summary_private.md ]]; then
           echo "::error::Claude Code did not produce private summary"
@@ -209,26 +226,33 @@ runs:
         FILES: ${{ steps.range.outputs.files_changed }}
       run: uv run --with telegramify-markdown --with tweepy python3 ${{ github.action_path }}/dispatch.py
 
-    - name: Update state variables
-      if: steps.range.outputs.skip != 'true' && inputs.cooldown != ''
+    # --- Save state for next run ---
+    - name: Save state
+      if: inputs.cooldown != ''
       shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        REPO: ${{ github.repository }}
       run: |
-        HEAD_SHA=$(git rev-parse HEAD)
-        NOW=$(date +%s)
+        mkdir -p /tmp/state
+        if [[ "${{ steps.range.outputs.skip }}" == "true" ]]; then
+          # Skipped — forward previous state unchanged
+          python3 -c "
+        import json
+        state = {'last_sha': '${{ steps.range.outputs.forward_sha }}', 'last_at': ${{ steps.range.outputs.forward_at || 0 }}}
+        json.dump(state, open('/tmp/state/dev-updates-state.json', 'w'))
+        "
+        else
+          # Posted — save current SHA and timestamp
+          python3 -c "
+        import json, time
+        state = {'last_sha': '$(git rev-parse HEAD)', 'last_at': int(time.time())}
+        json.dump(state, open('/tmp/state/dev-updates-state.json', 'w'))
+        "
+        fi
 
-        # Update or create DEV_UPDATES_LAST_SHA
-        gh api --method PATCH "repos/$REPO/actions/variables/DEV_UPDATES_LAST_SHA" \
-          -f value="$HEAD_SHA" 2>/dev/null || \
-        gh api --method POST "repos/$REPO/actions/variables" \
-          -f name="DEV_UPDATES_LAST_SHA" -f value="$HEAD_SHA" 2>/dev/null || \
-        echo "::warning::Could not update DEV_UPDATES_LAST_SHA. Add 'variables: write' permission to your workflow."
-
-        # Update or create DEV_UPDATES_LAST_AT
-        gh api --method PATCH "repos/$REPO/actions/variables/DEV_UPDATES_LAST_AT" \
-          -f value="$NOW" 2>/dev/null || \
-        gh api --method POST "repos/$REPO/actions/variables" \
-          -f name="DEV_UPDATES_LAST_AT" -f value="$NOW" 2>/dev/null || \
-        echo "::warning::Could not update DEV_UPDATES_LAST_AT. Add 'variables: write' permission to your workflow."
+    - name: Upload state artifact
+      if: inputs.cooldown != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: dev-updates-state
+        path: /tmp/state/dev-updates-state.json
+        retention-days: 90
+        overwrite: true

@@ -158,7 +158,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      actions: write  # required for cooldown state
+      actions: read  # required for cooldown state (reads previous run artifacts)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -179,13 +179,13 @@ How it works:
 
 Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
 
-**Important:** Add `actions: write` to your workflow permissions when using cooldown. Without it, the action degrades to realtime mode (posts on every push).
+State is stored as a workflow artifact (90-day retention). No extra permissions or PATs needed beyond the default `GITHUB_TOKEN`.
 
 ## Requirements
 
 - `CLAUDE_CODE_OAUTH_TOKEN` secret — for Claude Code ([get one here](https://console.anthropic.com))
 - Channel-specific tokens/webhooks as secrets
-- `actions: write` permission (only if using cooldown)
+- `actions: read` permission (only if using cooldown, for reading previous run artifacts)
 
 ## License
 

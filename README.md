@@ -2,7 +2,7 @@
 
 AI-powered dev update notifications with privacy modes and multi-channel dispatch.
 
-Uses [Claude Code](https://claude.ai/claude-code) to read your git diff and generate human-readable summaries, then dispatches them to any combination of Telegram, Discord, and Slack channels.
+Uses [Claude Code](https://claude.ai/claude-code) to read your git diff and generate human-readable summaries, then dispatches them to any combination of Telegram, Discord, Slack, and Twitter/X channels.
 
 ## Features
 
@@ -10,6 +10,7 @@ Uses [Claude Code](https://claude.ai/claude-code) to read your git diff and gene
 - **Multi-channel**: Send to any number of channels — each with its own mode
 - **AI-powered**: Claude Code reads the actual diff and writes the summary (not just commit messages)
 - **Configurable**: Custom rules for what to include/exclude per mode
+- **Cooldown + aggregation**: Avoid notification spam — aggregate changes over a configurable period
 
 ## Quick Start
 
@@ -139,10 +140,52 @@ backend · 2 commits · 4 files
 backend · 2 commits · 4 files
 ```
 
+## Cooldown + Aggregation
+
+By default, the action posts on every push. To reduce noise, set a `cooldown`:
+
+```yaml
+name: Dev Updates
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 */6 * * *'  # safety net — catches skipped updates
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      variables: write  # required for cooldown state
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - uses: alphakek-ai/dev-updates-action@v1
+        with:
+          cooldown: '6h'  # post at most once per 6 hours
+          channels: |
+            ...
+```
+
+How it works:
+- **First push** after cooldown expires → posts immediately with all changes since last notification
+- **Subsequent pushes** within cooldown → skipped silently
+- **Cron trigger** → catches any skipped updates (set cron interval to match cooldown)
+- State is stored in GitHub Actions variables (`DEV_UPDATES_LAST_SHA`, `DEV_UPDATES_LAST_AT`)
+
+Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
+
+**Important:** Add `variables: write` to your workflow permissions when using cooldown. Without it, the action degrades to realtime mode (posts on every push).
+
 ## Requirements
 
 - `CLAUDE_CODE_OAUTH_TOKEN` secret — for Claude Code ([get one here](https://console.anthropic.com))
 - Channel-specific tokens/webhooks as secrets
+- `variables: write` permission (only if using cooldown)
 
 ## License
 

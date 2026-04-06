@@ -24,10 +24,10 @@ jobs:
               thread_id: 4
               mode: private
 
-            - name: alphakek-channel
+            - name: alphakek-groupchat
               type: telegram
-              chat_id: "@alphakek"
-              mode: private
+              chat_id: "-1001982990617"
+              mode: public
 
             - name: aikek-agent-twitter
               type: twitter

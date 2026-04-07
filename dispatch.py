@@ -1,16 +1,24 @@
 """Dispatch summaries to configured channels.
 
 Reads channel config from CHANNELS env var (YAML),
-loads the appropriate summary (private/public),
+loads the appropriate summary (dev/community),
 and sends to each channel via its native API.
 
-Supported channel types: telegram, discord, slack, twitter (planned).
+Supported channel types: telegram, discord, slack, twitter.
 """
 
 import json
 import os
 import sys
 import urllib.request
+
+# Mode aliases for backward compatibility
+_MODE_ALIASES = {"private": "dev", "public": "community"}
+
+
+def _normalize_mode(mode: str) -> str:
+    """Normalize mode name, supporting old private/public aliases."""
+    return _MODE_ALIASES.get(mode, mode)
 
 
 def parse_channels(yaml_text: str) -> list[dict]:
@@ -55,8 +63,8 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
         print(f"  WARNING: {bot_token_env} not set, skipping")
         return
 
-    mode = ch.get("mode", "private")
-    if mode == "public":
+    mode = _normalize_mode(ch.get("mode", "dev"))
+    if mode == "community":
         footer = f"{repo_name} · {commits} commit(s) · {files} file(s)"
     else:
         footer = f"[{repo_name} · {commits} commit(s) · {files} file(s)](https://github.com/{repo})"
@@ -149,9 +157,9 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
     plain = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", plain)  # links → text only
     plain = re.sub(r"\n{3,}", "\n\n", plain).strip()  # collapse blank lines
 
-    mode = ch.get("mode", "private")
+    mode = _normalize_mode(ch.get("mode", "dev"))
     footer = f"{repo_name} · {commits} commit(s) · {files} file(s)"
-    if mode == "public":
+    if mode == "community":
         reserved = len(footer) + 2  # \n\n separator
         max_content = 280 - reserved
         text = plain[:max_content].rsplit("\n", 1)[0] if len(plain) > max_content else plain
@@ -191,7 +199,7 @@ def main() -> None:
     for ch in channels:
         name = ch.get("name", ch.get("type", "unknown"))
         ch_type = ch.get("type", "telegram")
-        mode = ch.get("mode", "private")
+        mode = _normalize_mode(ch.get("mode", "dev"))
 
         content = load_summary(mode)
         if not content:

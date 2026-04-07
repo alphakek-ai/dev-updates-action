@@ -14,16 +14,16 @@ inputs:
     description: 'Minimum time between notifications (e.g., 6h, 1d, 30m). Empty = post on every push.'
     required: false
     default: ''
-  public_rules:
-    description: 'Instructions for public summaries'
+  community_rules:
+    description: 'Instructions for community-facing summaries (concise, no internal details)'
     required: false
     default: |
       Describe changes in terms of user-facing impact only.
       Do not mention file paths, function names, class names, or internal architecture.
       Do not mention specific technologies, databases, or infrastructure details.
       Write as if announcing to end users who do not know the codebase.
-  private_rules:
-    description: 'Instructions for private summaries'
+  dev_rules:
+    description: 'Instructions for developer summaries (detailed, technical)'
     required: false
     default: |
       Include technical details: file paths, function names, what specifically changed and why.
@@ -166,10 +166,11 @@ runs:
       shell: bash
       run: |
         CHANNELS='${{ inputs.channels }}'
-        HAS_PRIVATE=$(echo "$CHANNELS" | grep -c 'mode:.*private' || true)
-        HAS_PUBLIC=$(echo "$CHANNELS" | grep -c 'mode:.*public' || true)
-        echo "has_private=$([[ $HAS_PRIVATE -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-        echo "has_public=$([[ $HAS_PUBLIC -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        # Support both old (private/public) and new (dev/community) mode names
+        HAS_DEV=$(echo "$CHANNELS" | grep -cE 'mode:.*(dev|private)' || true)
+        HAS_COMMUNITY=$(echo "$CHANNELS" | grep -cE 'mode:.*(community|public)' || true)
+        echo "has_dev=$([[ $HAS_DEV -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        echo "has_community=$([[ $HAS_COMMUNITY -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
     - name: Check required secrets
       if: steps.range.outputs.skip != 'true'
@@ -184,27 +185,27 @@ runs:
       if: steps.range.outputs.skip != 'true'
       shell: bash
       env:
-        HAS_PRIVATE: ${{ steps.modes.outputs.has_private }}
-        HAS_PUBLIC: ${{ steps.modes.outputs.has_public }}
+        HAS_DEV: ${{ steps.modes.outputs.has_dev }}
+        HAS_COMMUNITY: ${{ steps.modes.outputs.has_community }}
       run: |
         BEFORE="${{ steps.range.outputs.before }}"
         AFTER="${{ steps.range.outputs.after }}"
 
         TASK=""
-        if [[ "$HAS_PRIVATE" == "true" && "$HAS_PUBLIC" == "true" ]]; then
+        if [[ "$HAS_DEV" == "true" && "$HAS_COMMUNITY" == "true" ]]; then
           TASK="Write TWO summaries and save them using the Write tool:
 
-        1. Write /tmp/summary_private.md — a PRIVATE (technical) summary:
-        ${{ inputs.private_rules }}
+        1. Write /tmp/summary_dev.md — a DEV (technical) summary:
+        ${{ inputs.dev_rules }}
 
-        2. Write /tmp/summary_public.md — a PUBLIC (user-facing) summary:
-        ${{ inputs.public_rules }}"
-        elif [[ "$HAS_PRIVATE" == "true" ]]; then
-          TASK="Write a PRIVATE (technical) summary and save it using the Write tool to /tmp/summary_private.md.
-        ${{ inputs.private_rules }}"
+        2. Write /tmp/summary_community.md — a COMMUNITY (user-facing) summary:
+        ${{ inputs.community_rules }}"
+        elif [[ "$HAS_DEV" == "true" ]]; then
+          TASK="Write a DEV (technical) summary and save it using the Write tool to /tmp/summary_dev.md.
+        ${{ inputs.dev_rules }}"
         else
-          TASK="Write a PUBLIC (user-facing) summary and save it using the Write tool to /tmp/summary_public.md.
-        ${{ inputs.public_rules }}"
+          TASK="Write a COMMUNITY (user-facing) summary and save it using the Write tool to /tmp/summary_community.md.
+        ${{ inputs.community_rules }}"
         fi
 
         npx -y @anthropic-ai/claude-code --allowedTools "Read,Write,Bash(git *)" -p "
@@ -223,12 +224,12 @@ runs:
         " --max-turns 15 2>/dev/null
 
         FAILED=false
-        if [[ "$HAS_PRIVATE" == "true" && ! -s /tmp/summary_private.md ]]; then
-          echo "::error::Claude Code did not produce private summary"
+        if [[ "$HAS_DEV" == "true" && ! -s /tmp/summary_dev.md ]]; then
+          echo "::error::Claude Code did not produce dev summary"
           FAILED=true
         fi
-        if [[ "$HAS_PUBLIC" == "true" && ! -s /tmp/summary_public.md ]]; then
-          echo "::error::Claude Code did not produce public summary"
+        if [[ "$HAS_COMMUNITY" == "true" && ! -s /tmp/summary_community.md ]]; then
+          echo "::error::Claude Code did not produce community summary"
           FAILED=true
         fi
         if [[ "$FAILED" == "true" ]]; then

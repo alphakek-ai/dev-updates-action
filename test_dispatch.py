@@ -2,7 +2,7 @@
 
 import os
 
-from dispatch import load_summary, parse_channels
+from dispatch import _normalize_mode, load_summary, parse_channels
 
 
 class TestParseChannels:
@@ -93,6 +93,19 @@ class TestParseChannels:
         """
         channels = parse_channels(yaml)
         assert channels[0]["bot_token_env"] == "ALERT_BOT_TOKEN"
+
+
+class TestNormalizeMode:
+    def test_new_names_pass_through(self):
+        assert _normalize_mode("dev") == "dev"
+        assert _normalize_mode("community") == "community"
+
+    def test_old_names_aliased(self):
+        assert _normalize_mode("private") == "dev"
+        assert _normalize_mode("public") == "community"
+
+    def test_unknown_passes_through(self):
+        assert _normalize_mode("custom") == "custom"
 
 
 class TestLoadSummary:

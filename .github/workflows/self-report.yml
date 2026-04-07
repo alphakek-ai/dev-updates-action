@@ -26,16 +26,16 @@ jobs:
               type: telegram
               chat_id: "-1002852734125"
               thread_id: 4
-              mode: private
+              mode: dev
 
             - name: alphakek-groupchat
               type: telegram
               chat_id: "-1001982990617"
-              mode: private
+              mode: dev
 
             - name: aikek-agent-twitter
               type: twitter
-              mode: public
+              mode: community
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

@@ -149,12 +149,19 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
     plain = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", plain)  # links → text only
     plain = re.sub(r"\n{3,}", "\n\n", plain).strip()  # collapse blank lines
 
-    link = f"https://github.com/{repo}"
+    mode = ch.get("mode", "private")
     footer = f"{repo_name} · {commits} commit(s) · {files} file(s)"
-    reserved = len(footer) + len(link) + 4  # 4 for two \n\n separators
-    max_content = 280 - reserved
-    text = plain[:max_content].rsplit("\n", 1)[0] if len(plain) > max_content else plain
-    tweet = f"{text}\n\n{footer}\n{link}"
+    if mode == "public":
+        reserved = len(footer) + 2  # \n\n separator
+        max_content = 280 - reserved
+        text = plain[:max_content].rsplit("\n", 1)[0] if len(plain) > max_content else plain
+        tweet = f"{text}\n\n{footer}"
+    else:
+        link = f"https://github.com/{repo}"
+        reserved = len(footer) + len(link) + 4  # two \n\n separators
+        max_content = 280 - reserved
+        text = plain[:max_content].rsplit("\n", 1)[0] if len(plain) > max_content else plain
+        tweet = f"{text}\n\n{footer}\n{link}"
 
     client.create_tweet(text=tweet)
 

@@ -203,7 +203,8 @@ def main() -> None:
 
         content = load_summary(mode)
         if not content:
-            print(f"WARNING: No {mode} summary generated, skipping {name}")
+            print(f"ERROR: No {mode} summary generated for {name}")
+            failures += 1
             continue
 
         dispatcher = DISPATCHERS.get(ch_type)

@@ -60,8 +60,7 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
     token = os.environ.get(bot_token_env, "")
 
     if not token:
-        print(f"  WARNING: {bot_token_env} not set, skipping")
-        return
+        raise RuntimeError(f"{bot_token_env} not set")
 
     mode = _normalize_mode(ch.get("mode", "dev"))
     if mode == "community":
@@ -94,8 +93,7 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
 def send_discord(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
     webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
     if not webhook_url:
-        print("  WARNING: No webhook URL, skipping")
-        return
+        raise RuntimeError("No webhook URL configured")
 
     text = f"{content}\n\n[{repo_name}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)"
     payload = {"content": text[:2000]}
@@ -111,8 +109,7 @@ def send_discord(ch: dict, content: str, repo: str, repo_name: str, commits: str
 def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
     webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
     if not webhook_url:
-        print("  WARNING: No webhook URL, skipping")
-        return
+        raise RuntimeError("No webhook URL configured")
 
     text = f"{content}\n\n<https://github.com/{repo}|{repo_name}> · {commits} commit(s) · {files} file(s)"
     payload = {"text": text[:3000]}
@@ -137,8 +134,11 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
     access_token_secret = os.environ.get(ch.get("access_token_secret_env", "TWITTER_ACCESS_TOKEN_SECRET"), "")
 
     if not all([api_key, api_secret, access_token, access_token_secret]):
-        print("  WARNING: Twitter credentials incomplete, skipping")
-        return
+        missing = [name for name, val in [
+            ("TWITTER_API_KEY", api_key), ("TWITTER_API_SECRET", api_secret),
+            ("TWITTER_ACCESS_TOKEN", access_token), ("TWITTER_ACCESS_TOKEN_SECRET", access_token_secret),
+        ] if not val]
+        raise RuntimeError(f"Twitter credentials missing: {', '.join(missing)}")
 
     client = tweepy.Client(
         consumer_key=api_key,
@@ -209,7 +209,8 @@ def main() -> None:
 
         dispatcher = DISPATCHERS.get(ch_type)
         if not dispatcher:
-            print(f"WARNING: Unknown channel type '{ch_type}' for {name}")
+            print(f"ERROR: Unknown channel type '{ch_type}' for {name}")
+            failures += 1
             continue
 
         try:
@@ -224,7 +225,8 @@ def main() -> None:
         print(f"FATAL: All {failures} channel(s) failed")
         sys.exit(1)
     elif failures > 0:
-        print(f"WARNING: {failures}/{successes + failures} channel(s) failed")
+        print(f"ERROR: {failures}/{successes + failures} channel(s) failed")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

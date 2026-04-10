@@ -52,8 +52,9 @@ runs:
 
         # Find the latest successful run of this workflow (exclude current run)
         CURRENT_RUN_ID="${{ github.run_id }}"
-        RUN_ID=$(gh api "repos/$REPO/actions/runs?status=success&per_page=5" \
-          --jq "[.workflow_runs[] | select(.name==\"${{ github.workflow }}\" and .id != ${CURRENT_RUN_ID})][0].id" 2>/dev/null || echo "")
+        WORKFLOW_NAME="${{ github.workflow }}"
+        RUN_ID=$(gh run list --repo "$REPO" --workflow "$WORKFLOW_NAME" --status success --limit 5 --json databaseId \
+          --jq "[.[] | select(.databaseId != ${CURRENT_RUN_ID})][0].databaseId" 2>/dev/null || echo "")
 
         if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
           echo "::notice::No previous successful run found."

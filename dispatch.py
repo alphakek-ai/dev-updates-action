@@ -158,18 +158,23 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
     plain = re.sub(r"\n{3,}", "\n\n", plain).strip()  # collapse blank lines
 
     mode = _normalize_mode(ch.get("mode", "dev"))
+    max_length = int(ch.get("max_length", "0"))  # 0 = no cropping (X Premium)
     footer = f"{repo_name} · {commits} commit(s) · {files} file(s)"
-    if mode == "community":
-        reserved = len(footer) + 2  # \n\n separator
-        max_content = 280 - reserved
-        text = plain[:max_content].rsplit("\n", 1)[0] if len(plain) > max_content else plain
-        tweet = f"{text}\n\n{footer}"
-    else:
-        link = f"https://github.com/{repo}"
-        reserved = len(footer) + len(link) + 4  # two \n\n separators
-        max_content = 280 - reserved
-        text = plain[:max_content].rsplit("\n", 1)[0] if len(plain) > max_content else plain
-        tweet = f"{text}\n\n{footer}\n{link}"
+    link = f"https://github.com/{repo}" if mode == "dev" else ""
+
+    parts = [plain, footer]
+    if link:
+        parts.append(link)
+    tweet = "\n\n".join(parts)
+
+    if max_length > 0 and len(tweet) > max_length:
+        # Crop content to fit, keeping footer and link intact
+        suffix = f"\n\n{footer}"
+        if link:
+            suffix += f"\n{link}"
+        available = max_length - len(suffix)
+        text = plain[:available].rsplit("\n", 1)[0] if len(plain) > available else plain
+        tweet = text + suffix
 
     client.create_tweet(text=tweet)
 

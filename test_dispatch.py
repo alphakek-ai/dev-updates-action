@@ -2,7 +2,28 @@
 
 import os
 
-from dispatch import _normalize_mode, load_summary, parse_channels
+from dispatch import _limit_cashtags, _normalize_mode, load_summary, parse_channels
+
+
+class TestLimitCashtags:
+    def test_keeps_first_demotes_rest(self):
+        out = _limit_cashtags("Shipped $AIKEK, $MYCO, and $KEK today")
+        assert out.count("$") == 1
+        assert "$AIKEK" in out
+        assert "MYCO" in out and "$MYCO" not in out
+        assert "KEK" in out and "$KEK" not in out
+
+    def test_single_cashtag_untouched(self):
+        assert _limit_cashtags("Only $AIKEK here") == "Only $AIKEK here"
+
+    def test_prices_and_midword_untouched(self):
+        # Not cashtags: '$'+digit (price), and '$' mid-word (blocked by the lookbehind).
+        assert _limit_cashtags("costs $100 and $5k") == "costs $100 and $5k"
+        assert _limit_cashtags("mid-word like foo$BAR stays") == "mid-word like foo$BAR stays"
+
+    def test_repeated_symbol_collapses_to_one(self):
+        # Even repeats of the same symbol must collapse — X limits cashtag occurrences.
+        assert _limit_cashtags("$AIKEK up, $AIKEK strong").count("$") == 1
 
 
 class TestParseChannels:

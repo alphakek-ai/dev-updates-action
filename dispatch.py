@@ -9,6 +9,7 @@ Supported channel types: telegram, discord, slack, twitter.
 
 import json
 import os
+import re
 import sys
 import urllib.request
 
@@ -122,10 +123,24 @@ def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, 
     urllib.request.urlopen(req)
 
 
+def _limit_cashtags(text: str) -> str:
+    """Keep the first cashtag, strip '$' from the rest (X allows only one). Prices
+    ('$100', '$5k') and mid-word '$' are untouched — a cashtag is '$'+letter at a word
+    boundary."""
+    found = False
+
+    def demote_extra(m: re.Match[str]) -> str:
+        nonlocal found
+        if found:
+            return m.group(0)[1:]
+        found = True
+        return m.group(0)
+
+    return re.sub(r"(?<!\w)\$[A-Za-z][A-Za-z0-9]*", demote_extra, text)
+
+
 def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
     """Post tweet using OAuth 1.0a (static keys, no token rotation)."""
-    import re
-
     import tweepy
 
     api_key = os.environ.get(ch.get("api_key_env", "TWITTER_API_KEY"), "")
@@ -156,6 +171,7 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
     plain = re.sub(r"_(.+?)_", r"\1", plain)  # italic
     plain = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", plain)  # links → text only
     plain = re.sub(r"\n{3,}", "\n\n", plain).strip()  # collapse blank lines
+    plain = _limit_cashtags(plain)  # X allows at most one cashtag per post
 
     mode = _normalize_mode(ch.get("mode", "dev"))
     max_length = int(ch.get("max_length", "0"))  # 0 = no cropping (X Premium)

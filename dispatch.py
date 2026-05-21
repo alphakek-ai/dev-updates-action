@@ -123,18 +123,18 @@ def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, 
     urllib.request.urlopen(req)
 
 
-def _limit_cashtags(text: str, keep: int = 1) -> str:
-    """X rejects posts with more than one cashtag. Keep the first `keep` of them and
-    strip the leading '$' from the rest, so '$MYCO' reads as 'MYCO' — still informative,
-    just not a clickable cashtag. Matches at a word boundary and requires a letter after
-    '$', so prices ('$100', '$5k') and mid-word '$' are left untouched.
-    """
-    seen = 0
+def _limit_cashtags(text: str) -> str:
+    """Keep the first cashtag, strip '$' from the rest (X allows only one). Prices
+    ('$100', '$5k') and mid-word '$' are untouched — a cashtag is '$'+letter at a word
+    boundary."""
+    found = False
 
     def demote_extra(m: re.Match[str]) -> str:
-        nonlocal seen
-        seen += 1
-        return m.group(0) if seen <= keep else m.group(0)[1:]
+        nonlocal found
+        if found:
+            return m.group(0)[1:]
+        found = True
+        return m.group(0)
 
     return re.sub(r"(?<!\w)\$[A-Za-z][A-Za-z0-9]*", demote_extra, text)
 

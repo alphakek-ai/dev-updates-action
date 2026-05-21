@@ -17,8 +17,9 @@ class TestLimitCashtags:
         assert _limit_cashtags("Only $AIKEK here") == "Only $AIKEK here"
 
     def test_prices_and_midword_untouched(self):
-        # '$' followed by a digit (price) is not a cashtag.
+        # Not cashtags: '$'+digit (price), and '$' mid-word (blocked by the lookbehind).
         assert _limit_cashtags("costs $100 and $5k") == "costs $100 and $5k"
+        assert _limit_cashtags("mid-word like foo$BAR stays") == "mid-word like foo$BAR stays"
 
     def test_repeated_symbol_collapses_to_one(self):
         # Even repeats of the same symbol must collapse — X limits cashtag occurrences.

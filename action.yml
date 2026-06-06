@@ -236,7 +236,7 @@ runs:
         3. ${TASK}
 
         Each summary file should be a complete, well-formatted markdown message ready to send.
-        Include a bold title (${{ inputs.title_style }}), then bullet points summarizing the changes (max ${{ inputs.max_bullets }} bullets).
+        Include a bold title — style: ${{ inputs.title_style }}. Then bullet points summarizing the changes (max ${{ inputs.max_bullets }} bullets).
         Use markdown formatting naturally (bold, backticks, etc).
         Keep it concise — each bullet should be one line with an emoji prefix.
 

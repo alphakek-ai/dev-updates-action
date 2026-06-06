@@ -95,21 +95,21 @@ Tweets are auto-truncated to 280 chars with a link to the repo.
 
 ## Privacy Modes
 
-**Private** summaries include technical details — file paths, function names, what specifically changed. Good for dev team chats.
+**Dev** (`mode: dev`) summaries explain *how* the system changed — business logic, architecture, data flow — citing files/functions as supporting evidence rather than enumerating them. Good for dev team chats.
 
-**Public** summaries describe changes in terms of user-facing impact. No internal details. Good for announcement channels, Twitter, community updates.
+**Community** (`mode: community`) summaries describe each change as the user value it delivers, in plain language. No file names, technologies, or version numbers. Good for announcement channels, Twitter, community updates.
 
 You can customize the rules:
 
 ```yaml
 - uses: alphakek-ai/dev-updates-action@v1
   with:
-    public_rules: |
-      Describe changes as product improvements.
+    community_rules: |
+      Lead each bullet with the user benefit, in plain language.
       Never mention database, API, or infrastructure changes.
       Write in an excited, marketing-friendly tone.
-    private_rules: |
-      Include file paths and function names.
+    dev_rules: |
+      Lead with the architecture / business-logic change; cite files as support.
       Note any breaking changes or migration steps.
       Mention test coverage changes.
     channels: |

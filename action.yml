@@ -15,19 +15,38 @@ inputs:
     required: false
     default: ''
   community_rules:
-    description: 'Instructions for community-facing summaries (concise, no internal details)'
+    description: 'Instructions for community-facing summaries (user value, no internal details)'
     required: false
     default: |
-      Describe changes in terms of user-facing impact only.
-      Do not mention file paths, function names, class names, or internal architecture.
-      Do not mention specific technologies, databases, or infrastructure details.
-      Write as if announcing to end users who do not know the codebase.
+      Audience: end users who do not know the codebase. Each bullet must answer
+      "what can I now do, or what got better for me?" — lead with the user
+      benefit, in plain language.
+
+      Translate every change into user value. ("Upgraded to model X with
+      speculative decoding" -> "AI responses are noticeably faster, especially
+      on long answers.") If a change has no observable user impact, omit it or
+      fold it into a single generic "behind-the-scenes improvements" bullet —
+      do not pad the list with internal work.
+
+      Do NOT name files, functions, libraries, model names, databases, or
+      infrastructure. No version numbers, no product/tech brand names. If you
+      catch yourself naming a technology, restate it as the benefit it delivers.
   dev_rules:
-    description: 'Instructions for developer summaries (detailed, technical)'
+    description: 'Instructions for developer summaries (architecture & business logic)'
     required: false
     default: |
-      Include technical details: file paths, function names, what specifically changed and why.
-      Be precise and specific. This is for the dev team.
+      Audience: the dev team. Explain HOW the system changed — the business
+      logic, architecture, and data flow — not a file-by-file inventory.
+
+      For each bullet, lead with the behavioral/structural change ("X now does Y
+      instead of Z", "responsibility for X moved from A to B"), then cite the
+      file/function/symbol as supporting evidence in parentheses or a trailing
+      clause. Never make a filename or variable name the subject of a bullet.
+
+      Group related file changes into one conceptual change. If five files moved
+      because one component was replaced, that is ONE bullet about the component,
+      not five about the files. Call out anything that changes contracts:
+      breaking changes, migrations, new/removed env vars, API shape changes.
   title_style:
     description: 'Style for the update title'
     required: false
@@ -217,7 +236,7 @@ runs:
         3. ${TASK}
 
         Each summary file should be a complete, well-formatted markdown message ready to send.
-        Include a bold title, then bullet points summarizing the changes (max ${{ inputs.max_bullets }} bullets).
+        Include a bold title (${{ inputs.title_style }}), then bullet points summarizing the changes (max ${{ inputs.max_bullets }} bullets).
         Use markdown formatting naturally (bold, backticks, etc).
         Keep it concise — each bullet should be one line with an emoji prefix.
 

@@ -184,8 +184,12 @@ runs:
       if: steps.range.outputs.skip != 'true'
       id: modes
       shell: bash
+      # Pass channels via env, NOT inline ${{ }}. Substituting the YAML as raw
+      # text into CHANNELS='...' broke on any quote in the config — e.g. an
+      # apostrophe in a comment ("don't") terminated the single-quoted string.
+      env:
+        CHANNELS: ${{ inputs.channels }}
       run: |
-        CHANNELS='${{ inputs.channels }}'
         # Support both old (private/public) and new (dev/community) mode names
         HAS_DEV=$(echo "$CHANNELS" | grep -cE 'mode:.*(dev|private)' || true)
         HAS_COMMUNITY=$(echo "$CHANNELS" | grep -cE 'mode:.*(community|public)' || true)

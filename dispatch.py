@@ -22,6 +22,25 @@ def _normalize_mode(mode: str) -> str:
     return _MODE_ALIASES.get(mode, mode)
 
 
+def _is_required(ch: dict) -> bool:
+    """Channels are required by default. A channel may set `required: false` so a
+    flaky external service (e.g. X/Twitter rate limits, a downed webhook) can fail
+    without failing the whole run — and without blocking state-save, which would
+    otherwise re-post to the channels that DID succeed on the next run."""
+    return ch.get("required", "true").strip().lower() not in ("false", "0", "no")
+
+
+def _resolve_exit(required_failures: int, successes: int) -> int:
+    """Exit code from channel outcomes. Fail (1) if any REQUIRED channel failed,
+    or if nothing was delivered at all (even when every channel was optional —
+    a total delivery failure must never be silent). Otherwise 0."""
+    if required_failures > 0:
+        return 1
+    if successes == 0:
+        return 1
+    return 0
+
+
 def parse_channels(yaml_text: str) -> list[dict]:
     """Minimal YAML list parser — handles `- key: value` blocks."""
     channels = []
@@ -215,39 +234,48 @@ def main() -> None:
         sys.exit(1)
 
     successes = 0
-    failures = 0
+    required_failures = 0
+    optional_failures = 0
 
     for ch in channels:
         name = ch.get("name", ch.get("type", "unknown"))
         ch_type = ch.get("type", "telegram")
         mode = _normalize_mode(ch.get("mode", "dev"))
+        required = _is_required(ch)
+        tag = "required" if required else "optional"
 
         content = load_summary(mode)
-        if not content:
-            print(f"ERROR: No {mode} summary generated for {name}")
-            failures += 1
-            continue
-
         dispatcher = DISPATCHERS.get(ch_type)
-        if not dispatcher:
-            print(f"ERROR: Unknown channel type '{ch_type}' for {name}")
-            failures += 1
-            continue
 
-        try:
-            dispatcher(ch, content, repo, repo_name, commits, files)
-            print(f"OK: {name} ({ch_type}, {mode})")
+        error = None
+        if not content:
+            error = f"No {mode} summary generated"
+        elif not dispatcher:
+            error = f"Unknown channel type '{ch_type}'"
+        else:
+            try:
+                dispatcher(ch, content, repo, repo_name, commits, files)
+            except Exception as e:
+                error = str(e)
+
+        if error is None:
+            print(f"OK: {name} ({ch_type}, {mode}, {tag})")
             successes += 1
-        except Exception as e:
-            print(f"ERROR: {name} ({ch_type}): {e}")
-            failures += 1
+        else:
+            print(f"ERROR: {name} ({ch_type}, {tag}): {error}")
+            if required:
+                required_failures += 1
+            else:
+                optional_failures += 1
 
-    if successes == 0 and failures > 0:
-        print(f"FATAL: All {failures} channel(s) failed")
-        sys.exit(1)
-    elif failures > 0:
-        print(f"ERROR: {failures}/{successes + failures} channel(s) failed")
-        sys.exit(1)
+    if optional_failures > 0:
+        print(f"WARN: {optional_failures} optional channel(s) failed — not failing the run")
+    if required_failures > 0:
+        print(f"FATAL: {required_failures} required channel(s) failed")
+    elif successes == 0:
+        print("FATAL: all channels failed — nothing delivered")
+
+    sys.exit(_resolve_exit(required_failures, successes))
 
 
 if __name__ == "__main__":

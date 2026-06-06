@@ -2,7 +2,14 @@
 
 import os
 
-from dispatch import _limit_cashtags, _normalize_mode, load_summary, parse_channels
+from dispatch import (
+    _is_required,
+    _limit_cashtags,
+    _normalize_mode,
+    _resolve_exit,
+    load_summary,
+    parse_channels,
+)
 
 
 class TestLimitCashtags:
@@ -127,6 +134,39 @@ class TestNormalizeMode:
 
     def test_unknown_passes_through(self):
         assert _normalize_mode("custom") == "custom"
+
+
+class TestIsRequired:
+    def test_default_is_required(self):
+        # Absent `required` field → channel is required (backward compatible).
+        assert _is_required({"name": "team", "type": "telegram"}) is True
+
+    def test_explicit_true(self):
+        assert _is_required({"required": "true"}) is True
+
+    def test_false_variants_are_optional(self):
+        for val in ("false", "False", "FALSE", "0", "no", "No"):
+            assert _is_required({"required": val}) is False, val
+
+    def test_unrecognized_value_stays_required(self):
+        # Anything not clearly false stays required — fail safe, not silent.
+        assert _is_required({"required": "maybe"}) is True
+
+
+class TestResolveExit:
+    def test_all_succeed(self):
+        assert _resolve_exit(required_failures=0, successes=3) == 0
+
+    def test_optional_failure_with_a_success_passes(self):
+        # The Twitter-403 scenario: required channels OK, an optional one failed.
+        assert _resolve_exit(required_failures=0, successes=2) == 0
+
+    def test_required_failure_fails(self):
+        assert _resolve_exit(required_failures=1, successes=2) == 1
+
+    def test_total_failure_fails_even_if_all_optional(self):
+        # Nothing delivered must never be silent, even with no required channels.
+        assert _resolve_exit(required_failures=0, successes=0) == 1
 
 
 class TestLoadSummary:

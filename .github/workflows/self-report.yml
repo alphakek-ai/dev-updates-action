@@ -36,6 +36,10 @@ jobs:
             - name: aikek-agent-twitter
               type: twitter
               mode: dev
+              # X/Twitter posting can 403 on app-permission/token issues or rate
+              # limits; don't let it red the run or block state-save (which would
+              # re-post to the Telegram channels above on the next run).
+              required: false
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

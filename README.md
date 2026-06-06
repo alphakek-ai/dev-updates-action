@@ -57,8 +57,9 @@ Each channel is a YAML block with:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | Yes | Display name for logging |
-| `type` | Yes | `telegram`, `discord`, or `slack` |
-| `mode` | Yes | `private` (technical details) or `public` (user-facing) |
+| `type` | Yes | `telegram`, `discord`, `slack`, or `twitter` |
+| `mode` | Yes | `dev` (technical details) or `community` (user-facing) |
+| `required` | No | `true` (default) or `false`. A `required: false` channel may fail without failing the run — use for flaky external channels (e.g. Twitter/X) so one outage doesn't red the build or trigger duplicate re-posts on the channels that succeeded. The run still fails if a required channel fails, or if *no* channel delivers. |
 
 ### Telegram
 

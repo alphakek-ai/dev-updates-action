@@ -204,28 +204,35 @@ runs:
     - name: Generate summaries
       if: steps.range.outputs.skip != 'true'
       shell: bash
+      # Pass inputs via env, NOT inline ${{ }} in the script. GitHub substitutes
+      # ${{ }} as raw text before bash runs, so a rules value containing a double
+      # quote (or `$(...)`/backtick) would break the bash string — or execute as a
+      # command. Env values are assigned directly and expand as inert data.
       env:
         HAS_DEV: ${{ steps.modes.outputs.has_dev }}
         HAS_COMMUNITY: ${{ steps.modes.outputs.has_community }}
+        BEFORE: ${{ steps.range.outputs.before }}
+        AFTER: ${{ steps.range.outputs.after }}
+        DEV_RULES: ${{ inputs.dev_rules }}
+        COMMUNITY_RULES: ${{ inputs.community_rules }}
+        TITLE_STYLE: ${{ inputs.title_style }}
+        MAX_BULLETS: ${{ inputs.max_bullets }}
       run: |
-        BEFORE="${{ steps.range.outputs.before }}"
-        AFTER="${{ steps.range.outputs.after }}"
-
         TASK=""
         if [[ "$HAS_DEV" == "true" && "$HAS_COMMUNITY" == "true" ]]; then
           TASK="Write TWO summaries and save them using the Write tool:
 
         1. Write /tmp/summary_dev.md — a DEV (technical) summary:
-        ${{ inputs.dev_rules }}
+        $DEV_RULES
 
         2. Write /tmp/summary_community.md — a COMMUNITY (user-facing) summary:
-        ${{ inputs.community_rules }}"
+        $COMMUNITY_RULES"
         elif [[ "$HAS_DEV" == "true" ]]; then
           TASK="Write a DEV (technical) summary and save it using the Write tool to /tmp/summary_dev.md.
-        ${{ inputs.dev_rules }}"
+        $DEV_RULES"
         else
           TASK="Write a COMMUNITY (user-facing) summary and save it using the Write tool to /tmp/summary_community.md.
-        ${{ inputs.community_rules }}"
+        $COMMUNITY_RULES"
         fi
 
         npx -y @anthropic-ai/claude-code --allowedTools "Read,Write,Bash(git *)" -p "
@@ -236,7 +243,7 @@ runs:
         3. ${TASK}
 
         Each summary file should be a complete, well-formatted markdown message ready to send.
-        Include a bold title — style: ${{ inputs.title_style }}. Then bullet points summarizing the changes (max ${{ inputs.max_bullets }} bullets).
+        Include a bold title — style: ${TITLE_STYLE}. Then bullet points summarizing the changes (max ${MAX_BULLETS} bullets).
         Use markdown formatting naturally (bold, backticks, etc).
         Keep it concise — each bullet should be one line with an emoji prefix.
 

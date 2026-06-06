@@ -274,14 +274,18 @@ def main() -> None:
             else:
                 optional_failures += 1
 
+    exit_code = _resolve_exit(required_failures, successes)
     if optional_failures > 0:
-        print(f"WARN: {optional_failures} optional channel(s) failed — not failing the run")
+        # Only claim "not failing the run" when that's actually true — a required
+        # failure (or zero deliveries) below still exits non-zero.
+        suffix = " — not failing the run" if exit_code == 0 else ""
+        print(f"WARN: {optional_failures} optional channel(s) failed{suffix}")
     if required_failures > 0:
         print(f"FATAL: {required_failures} required channel(s) failed")
     elif successes == 0:
         print("FATAL: all channels failed — nothing delivered")
 
-    sys.exit(_resolve_exit(required_failures, successes))
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

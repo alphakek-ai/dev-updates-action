@@ -2,6 +2,8 @@
 
 import os
 
+import pytest
+
 import dispatch
 from dispatch import (
     _is_required,
@@ -189,12 +191,11 @@ class TestMainWarnSuffix:
         with open("/tmp/summary_dev.md", "w") as f:
             f.write("**title**\n- x")
         try:
-            dispatch.main()
-            code = 0
-        except SystemExit as e:
-            code = e.code
-        os.unlink("/tmp/summary_dev.md")
-        return code, capsys.readouterr().out
+            with pytest.raises(SystemExit) as exc:
+                dispatch.main()
+        finally:
+            os.unlink("/tmp/summary_dev.md")
+        return exc.value.code, capsys.readouterr().out
 
     def test_optional_only_failure_says_not_failing(self, monkeypatch, capsys):
         ok = lambda *a, **k: None  # noqa: E731

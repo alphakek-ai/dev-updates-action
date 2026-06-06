@@ -26,14 +26,24 @@ jobs:
         with:
           # Tag the exact commit that Tests validated, not whatever is newest.
           ref: ${{ github.event.workflow_run.head_sha }}
+          # Full history (cheap on this repo) so the regression guard below can
+          # compare $SHA against v1 with `git merge-base --is-ancestor`.
           fetch-depth: 0
 
-      - name: Move v1 to the tested commit
+      - name: Move v1 to the tested commit (only if it advances)
         env:
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin 'refs/tags/v1:refs/tags/v1' || true
+          # Don't regress v1. Tests runs can complete out of order, so an older
+          # commit's run may finish after a newer one already advanced v1 — skip
+          # if v1 is already at or ahead of this SHA.
+          if git rev-parse -q --verify v1 >/dev/null && git merge-base --is-ancestor "$SHA" v1; then
+            echo "::notice::v1 already at/ahead of ${SHA:0:8} — skipping"
+            exit 0
+          fi
           git tag -f v1 "$SHA"
           git push -f origin "refs/tags/v1"
           echo "::notice::Advanced v1 -> ${SHA:0:8}"

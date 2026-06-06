@@ -26,8 +26,14 @@ def _is_required(ch: dict) -> bool:
     """Channels are required by default. A channel may set `required: false` so a
     flaky external service (e.g. X/Twitter rate limits, a downed webhook) can fail
     without failing the whole run — and without blocking state-save, which would
-    otherwise re-post to the channels that DID succeed on the next run."""
-    return ch.get("required", "true").strip().lower() not in ("false", "0", "no")
+    otherwise re-post to the channels that DID succeed on the next run.
+
+    Handles both the string values today's parse_channels yields and native bools,
+    in case parse_channels is ever swapped for real YAML parsing."""
+    val = ch.get("required", True)
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() not in ("false", "0", "no")
 
 
 def _resolve_exit(required_failures: int, successes: int) -> int:
@@ -262,7 +268,7 @@ def main() -> None:
             print(f"OK: {name} ({ch_type}, {mode}, {tag})")
             successes += 1
         else:
-            print(f"ERROR: {name} ({ch_type}, {tag}): {error}")
+            print(f"ERROR: {name} ({ch_type}, {mode}, {tag}): {error}")
             if required:
                 required_failures += 1
             else:

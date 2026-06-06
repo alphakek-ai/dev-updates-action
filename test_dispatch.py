@@ -152,6 +152,15 @@ class TestIsRequired:
         # Anything not clearly false stays required — fail safe, not silent.
         assert _is_required({"required": "maybe"}) is True
 
+    def test_empty_value_stays_required(self):
+        # `required:` with no value → parse_channels yields "" → fail-safe to required.
+        assert _is_required({"required": ""}) is True
+
+    def test_native_bool_values(self):
+        # If parse_channels is ever swapped for real YAML, native bools must work.
+        assert _is_required({"required": True}) is True
+        assert _is_required({"required": False}) is False
+
 
 class TestResolveExit:
     def test_all_succeed(self):

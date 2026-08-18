@@ -269,7 +269,10 @@ runs:
 
     - name: Install uv
       if: steps.range.outputs.skip != 'true'
-      uses: astral-sh/setup-uv@v6
+      # The action pins uv because a consumer's version range would require a GitHub Releases lookup.
+      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      with:
+        version: 0.12.1
 
     - name: Dispatch to channels
       id: dispatch
@@ -281,7 +284,8 @@ runs:
         COMMITS: ${{ steps.range.outputs.commit_count }}
         FILES: ${{ steps.range.outputs.files_changed }}
       run: |
-        uv run --with telegramify-markdown --with tweepy python3 ${{ github.action_path }}/dispatch.py
+        # The dispatcher ignores the consumer project because it needs only its two temporary dependencies.
+        uv run --no-project --with telegramify-markdown --with tweepy python3 ${{ github.action_path }}/dispatch.py
         echo "dispatched=true" >> "$GITHUB_OUTPUT"
 
     # --- Save state for next run ---

@@ -1,9 +1,16 @@
 import subprocess
+import os
+from pathlib import Path
+import sys
 import urllib.error
 
 import pytest
 
 from publication import DeliveryNotAttempted, Journal, channel_fingerprint, git, prepare, publish, seconds
+from dispatch import parse_channels
+
+
+PUBLICATION_SCRIPT = Path(__file__).with_name('publication.py').resolve()
 
 
 CHANNELS = [{'name': 'team', 'type': 'telegram', 'mode': 'dev'},
@@ -35,6 +42,32 @@ def history(tmp_path, monkeypatch):
 def deliver(journal, commits, sender):
     return publish(journal, CHANNELS, commits[0], commits[1], SUMMARIES,
                    'owner/repo', lambda: 200, {'telegram': sender})
+
+
+@pytest.mark.parametrize('config, expected', [
+    ('- name: team\n  type: telegram\n', {'dev'}),
+    ('- name: team\n  mode : dev\n', {'dev'}),
+    ('# mode: dev\n- name: public\n  mode: community\n', {'community'}),
+    ('- name: team\n  mode: private\n', {'dev'}),
+    ('- name: public\n  mode: public\n', {'community'}),
+    ('- name: team\n- name: public\n  mode: community\n', {'dev', 'community'}),
+])
+def test_prepare_cli_modes_match_publication(history, tmp_path, config, expected):
+    journal, commits = history
+    output = tmp_path / 'github-output'
+    subprocess.run([sys.executable, str(PUBLICATION_SCRIPT), 'prepare'], check=True,
+                   capture_output=True, text=True,
+                   env={**os.environ, 'CHANNELS': config, 'COOLDOWN': '',
+                        'STATE_BRANCH': 'dev-updates-state/test', 'GITHUB_OUTPUT': str(output)})
+    values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+    detected = {mode for mode in ('dev', 'community') if values[f'has_{mode}'] == 'true'}
+    assert detected == expected
+    calls = []
+    publish(journal, parse_channels(config), values['before'], values['after'],
+            {mode: f'{mode} summary' for mode in detected}, 'owner/repo', lambda: 200,
+            {'telegram': lambda ch, content, *args: calls.append(content)})
+    assert set(calls) == {f'{mode} summary' for mode in expected}
+    assert journal.load()['last_sha'] == commits[-1]
 
 
 def test_september_replay_does_not_repeat_completed_range(history):

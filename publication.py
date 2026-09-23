@@ -222,6 +222,8 @@ def main():
     channels = parse_channels(os.environ['CHANNELS'])
     if args.command == 'prepare':
         result = prepare(journal, git('rev-parse', 'HEAD'), os.environ.get('COOLDOWN', ''), int(time.time()), channels)
+        modes = {_normalize_mode(ch.get('mode', 'dev')) for ch in channels}
+        result.update({f'has_{mode}': str(mode in modes).lower() for mode in ('dev', 'community')})
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
             for key, value in result.items():
                 output.write(f'{key}={value}\n')

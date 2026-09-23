@@ -73,22 +73,6 @@ runs:
         GH_TOKEN: ${{ github.token }}
       run: python3 "$ACTION_PATH/publication.py" prepare
 
-    - name: Detect required modes
-      if: steps.range.outputs.skip != 'true'
-      id: modes
-      shell: bash
-      # Pass channels via env, NOT inline ${{ }}. Substituting the YAML as raw
-      # text into CHANNELS='...' broke on any quote in the config — e.g. an
-      # apostrophe in a comment ("don't") terminated the single-quoted string.
-      env:
-        CHANNELS: ${{ inputs.channels }}
-      run: |
-        # Support both old (private/public) and new (dev/community) mode names
-        HAS_DEV=$(echo "$CHANNELS" | grep -cE 'mode:.*(dev|private)' || true)
-        HAS_COMMUNITY=$(echo "$CHANNELS" | grep -cE 'mode:.*(community|public)' || true)
-        echo "has_dev=$([[ $HAS_DEV -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-        echo "has_community=$([[ $HAS_COMMUNITY -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
     - name: Check required secrets
       if: steps.range.outputs.skip != 'true' && steps.range.outputs.resume != 'true'
       shell: bash
@@ -104,8 +88,8 @@ runs:
       env:
         GH_TOKEN: ''
         GITHUB_TOKEN: ''
-        HAS_DEV: ${{ steps.modes.outputs.has_dev }}
-        HAS_COMMUNITY: ${{ steps.modes.outputs.has_community }}
+        HAS_DEV: ${{ steps.range.outputs.has_dev }}
+        HAS_COMMUNITY: ${{ steps.range.outputs.has_community }}
         BEFORE: ${{ steps.range.outputs.before }}
         AFTER: ${{ steps.range.outputs.after }}
         DEV_RULES: ${{ inputs.dev_rules }}

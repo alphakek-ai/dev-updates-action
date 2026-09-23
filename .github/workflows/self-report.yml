@@ -6,20 +6,25 @@ on:
   schedule:
     - cron: '0 */12 * * *'
 
+concurrency:
+  group: self-report-publication
+  cancel-in-progress: false
+
 jobs:
   notify:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
       actions: read
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 50
+          fetch-depth: 0
 
       - uses: ./  # use itself
         with:
+          state_branch: dev-updates-state/self-report
           cooldown: '12h'
           channels: |
             - name: dev-updates-action-releases

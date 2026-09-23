@@ -21,18 +21,22 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: dev-updates-publication
+  cancel-in-progress: false
+
 jobs:
   notify:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 50
+          fetch-depth: 0
 
-      - uses: alphakek-ai/dev-updates-action@v1
+      - uses: alphakek-ai/dev-updates-action@v2
         with:
           channels: |
             - name: team-chat
@@ -103,7 +107,7 @@ Tweets are auto-truncated to 280 chars with a link to the repo.
 You can customize the rules:
 
 ```yaml
-- uses: alphakek-ai/dev-updates-action@v1
+- uses: alphakek-ai/dev-updates-action@v2
   with:
     community_rules: |
       Lead each bullet with the user benefit, in plain language.
@@ -153,19 +157,23 @@ on:
   schedule:
     - cron: '0 */12 * * *'  # safety net — catches skipped updates
 
+concurrency:
+  group: dev-updates-publication
+  cancel-in-progress: false
+
 jobs:
   notify:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
-      actions: read  # required for cooldown state (reads previous run artifacts)
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 50
+          fetch-depth: 0
 
-      - uses: alphakek-ai/dev-updates-action@v1
+      - uses: alphakek-ai/dev-updates-action@v2
         with:
           cooldown: '12h'  # post at most once per 12 hours
           channels: |
@@ -176,7 +184,38 @@ How it works:
 - **First push** after cooldown expires → posts immediately with all changes since last notification
 - **Subsequent pushes** within cooldown → skipped silently
 - **Cron trigger** → catches any skipped updates (set cron interval to match cooldown)
-- State is stored in GitHub Actions variables (`DEV_UPDATES_LAST_SHA`, `DEV_UPDATES_LAST_AT`)
+- Pushes and scheduled runs both respect the cooldown.
+- State and frozen messages live in a dedicated `dev-updates-state/*` Git branch, updated with an explicit compare-and-swap lease. GitHub run listings and expiring artifacts are not used.
+- Successful channel deliveries are recorded individually. Retrying an unfinished batch sends only channels whose previous attempt was definitively rejected.
+- Timeouts, crashes during delivery, and failed post-delivery journal writes leave a `pending` record. The action reports an error instead of automatically sending that message again.
+
+## Upgrading and initializing state
+
+Version 2 requires `contents: write`, full Git history, and an initialized state branch. Version 1 remains unchanged. Use one state branch and one concurrency group per publisher; do not cancel a running publisher.
+
+Stop the old publisher during cutover. Inspect its latest successful delivery logs and the corresponding `dev-updates-state.json` artifact; verify every configured channel delivered before taking its `last_sha` and `last_at`. From a full checkout of the consumer repository, with the new action code available locally, run:
+
+```sh
+python3 /path/to/dev-updates-action/publication.py initialize \
+  --branch dev-updates-state/default --sha FULL_LAST_PUBLISHED_SHA --at UNIX_TIMESTAMP
+```
+
+This creates only the dedicated state branch. It refuses to overwrite existing state. For a new publisher, explicitly choose the commit before the first changes you want announced and use timestamp 0. Set the action's `state_branch` input if not using the default. Enable the updated workflow after initialization. Source-branch history is untouched.
+
+The journal contains generated summaries; use a private repository for private summaries. Grant branch writes only to the publisher and trusted operators. Never delete or reset the journal to recover a failed run.
+
+## Reconciling uncertain delivery
+
+A `pending` channel means delivery may have happened. Inspect the destination and the journal's frozen batch before choosing an outcome:
+
+```sh
+python3 /path/to/dev-updates-action/publication.py resolve \
+  --branch dev-updates-state/default --channel CHANNEL_NAME --outcome sent
+```
+
+Use `--outcome retry` only after verifying that the message was not delivered and that the original publisher has stopped. Then rerun the workflow: already-sent channels remain skipped. Resolution itself sends nothing. Do not resolve while a publisher is running.
+
+There is no exactly-once guarantee across Git and messaging APIs: a lost response cannot prove whether a message was delivered. The journal makes that uncertainty explicit and prevents blind retries.
 
 Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
 

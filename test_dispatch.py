@@ -1,6 +1,8 @@
 """Tests for dispatch.py — channel parsing, summary loading."""
 
 import os
+import io
+import json
 
 import pytest
 
@@ -13,6 +15,30 @@ from dispatch import (
     load_summary,
     parse_channels,
 )
+
+
+@pytest.mark.parametrize('body', [
+    {'ok': False, 'error_code': 429},
+    {'ok': True, 'result': {}},
+])
+def test_telegram_requires_confirmed_message_id(monkeypatch, body):
+    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+    monkeypatch.setattr(dispatch.urllib.request, 'urlopen',
+                        lambda req, timeout: io.BytesIO(json.dumps(body).encode()))
+    with pytest.raises(RuntimeError, match='confirm'):
+        dispatch.send_telegram({'chat_id': 'test'}, 'Update', 'owner/repo', 'repo', '1', '1')
+
+
+def test_telegram_success_consumes_acknowledgement(monkeypatch):
+    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+    requests = []
+    def post(req, timeout):
+        requests.append((json.loads(req.data), timeout))
+        return io.BytesIO(b'{"ok":true,"result":{"message_id":123}}')
+    monkeypatch.setattr(dispatch.urllib.request, 'urlopen', post)
+    dispatch.send_telegram({'chat_id': 'test'}, 'Update', 'owner/repo', 'repo', '1', '1')
+    assert requests[0][0]['chat_id'] == 'test'
+    assert requests[0][1] == 30
 
 
 class TestLimitCashtags:

@@ -113,7 +113,10 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    urllib.request.urlopen(req)
+    with urllib.request.urlopen(req, timeout=30) as response:
+        result = json.load(response)
+    if not result.get('ok') or not result.get('result', {}).get('message_id'):
+        raise RuntimeError('Telegram did not confirm a message ID')
 
 
 def send_discord(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
@@ -129,7 +132,8 @@ def send_discord(ch: dict, content: str, repo: str, repo_name: str, commits: str
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    urllib.request.urlopen(req)
+    with urllib.request.urlopen(req, timeout=30):
+        pass
 
 
 def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
@@ -145,7 +149,8 @@ def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, 
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    urllib.request.urlopen(req)
+    with urllib.request.urlopen(req, timeout=30):
+        pass
 
 
 def _limit_cashtags(text: str) -> str:

@@ -10,6 +10,9 @@ inputs:
   channels:
     description: 'YAML list of channel configurations'
     required: true
+  state_branch:
+    description: 'Dedicated initialized publication journal branch; never a source branch'
+    default: 'dev-updates-state/default'
   cooldown:
     description: 'Minimum time between notifications (e.g., 6h, 1d, 30m). Empty = post on every push.'
     required: false
@@ -59,145 +62,19 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # --- Load state from previous run ---
-    - name: Load previous state
-      if: inputs.cooldown != ''
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-        REPO: ${{ github.repository }}
-      run: |
-        mkdir -p /tmp/state
-
-        # Find the latest successful run of this workflow (exclude current run)
-        CURRENT_RUN_ID="${{ github.run_id }}"
-        WORKFLOW_NAME="${{ github.workflow }}"
-        RUN_ID=$(gh run list --repo "$REPO" --workflow "$WORKFLOW_NAME" --status success --limit 5 --json databaseId \
-          --jq "[.[] | select(.databaseId != ${CURRENT_RUN_ID})][0].databaseId" 2>/dev/null || echo "")
-
-        if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
-          echo "::notice::No previous successful run found."
-          exit 0
-        fi
-
-        # Find the artifact in that run
-        ARTIFACT_URL=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
-          --jq '.artifacts[] | select(.name=="dev-updates-state") | .archive_download_url' 2>/dev/null || echo "")
-
-        if [[ -z "$ARTIFACT_URL" || "$ARTIFACT_URL" == "null" ]]; then
-          echo "::notice::Previous run had no state artifact."
-          exit 0
-        fi
-
-        # Download and extract
-        gh api "$ARTIFACT_URL" > /tmp/state/artifact.zip 2>/dev/null || { echo "::notice::Failed to download artifact."; exit 0; }
-        unzip -o -q /tmp/state/artifact.zip -d /tmp/state 2>/dev/null || { echo "::notice::Failed to unzip artifact."; exit 0; }
-        echo "::notice::Loaded state artifact from run $RUN_ID"
-
-    - name: Get commit range
+    - name: Prepare publication
       id: range
       shell: bash
       env:
-        COOLDOWN: ${{ inputs.cooldown }}
-        EVENT_NAME: ${{ github.event_name }}
-        EVENT_BEFORE: ${{ github.event.before }}
-        EVENT_AFTER: ${{ github.event.after }}
-      run: |
-        HEAD_SHA=$(git rev-parse HEAD)
-
-        # --- Cooldown logic ---
-        if [[ -n "$COOLDOWN" ]]; then
-          # Parse cooldown to seconds
-          COOLDOWN_SECONDS=0
-          if [[ "$COOLDOWN" =~ ^([0-9]+)h$ ]]; then
-            COOLDOWN_SECONDS=$(( ${BASH_REMATCH[1]} * 3600 ))
-          elif [[ "$COOLDOWN" =~ ^([0-9]+)m$ ]]; then
-            COOLDOWN_SECONDS=$(( ${BASH_REMATCH[1]} * 60 ))
-          elif [[ "$COOLDOWN" =~ ^([0-9]+)d$ ]]; then
-            COOLDOWN_SECONDS=$(( ${BASH_REMATCH[1]} * 86400 ))
-          elif [[ "$COOLDOWN" =~ ^([0-9]+)s$ ]]; then
-            COOLDOWN_SECONDS=${BASH_REMATCH[1]}
-          elif [[ "$COOLDOWN" =~ ^[0-9]+$ ]]; then
-            COOLDOWN_SECONDS=$COOLDOWN
-          fi
-
-          # Read state from previous run's artifact
-          LAST_SHA=""
-          LAST_AT="0"
-          if [[ -f /tmp/state/dev-updates-state.json ]]; then
-            LAST_SHA=$(python3 -c "import json; d=json.load(open('/tmp/state/dev-updates-state.json')); print(d.get('last_sha',''))")
-            LAST_AT=$(python3 -c "import json; d=json.load(open('/tmp/state/dev-updates-state.json')); print(d.get('last_at','0'))")
-            echo "::notice::Loaded state from previous run: sha=${LAST_SHA:0:8}, at=${LAST_AT}"
-          else
-            echo "::notice::No previous state found (first run or artifact expired)."
-          fi
-
-          NOW=$(date +%s)
-
-          # On push: check cooldown
-          if [[ "$EVENT_NAME" == "push" && "$LAST_AT" != "0" ]]; then
-            ELAPSED=$(( NOW - LAST_AT ))
-            if (( ELAPSED < COOLDOWN_SECONDS )); then
-              REMAINING=$(( COOLDOWN_SECONDS - ELAPSED ))
-              echo "::notice::Within cooldown (${ELAPSED}s elapsed, ${REMAINING}s remaining). Cron will catch up."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              # Forward the state unchanged
-              echo "forward_sha=${LAST_SHA}" >> "$GITHUB_OUTPUT"
-              echo "forward_at=${LAST_AT}" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-
-          # Determine commit range from state
-          if [[ -z "$LAST_SHA" ]]; then
-            BEFORE="${HEAD_SHA}~1"
-            echo "::notice::First run — summarizing latest commit."
-          elif ! git merge-base --is-ancestor "$LAST_SHA" "$HEAD_SHA" 2>/dev/null; then
-            BEFORE=$(git rev-list -1 --before="24 hours ago" HEAD 2>/dev/null || echo "${HEAD_SHA}~10")
-            echo "::warning::Last notified SHA (${LAST_SHA:0:8}) not in history. Falling back."
-          elif [[ "$LAST_SHA" == "$HEAD_SHA" ]]; then
-            echo "::notice::No new commits since last notification."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "forward_sha=${LAST_SHA}" >> "$GITHUB_OUTPUT"
-            echo "forward_at=${LAST_AT}" >> "$GITHUB_OUTPUT"
-            exit 0
-          else
-            BEFORE="$LAST_SHA"
-          fi
-          AFTER="$HEAD_SHA"
-        else
-          # --- No cooldown: realtime mode ---
-          BEFORE="$EVENT_BEFORE"
-          AFTER="$EVENT_AFTER"
-          if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
-            BEFORE="${AFTER}~1"
-          fi
-        fi
-
-        echo "before=${BEFORE}" >> "$GITHUB_OUTPUT"
-        echo "after=${AFTER}" >> "$GITHUB_OUTPUT"
-        echo "skip=false" >> "$GITHUB_OUTPUT"
-        echo "commit_count=$(git rev-list --count "${BEFORE}..${AFTER}" 2>/dev/null || echo 1)" >> "$GITHUB_OUTPUT"
-        echo "files_changed=$(git diff --name-only "${BEFORE}" "${AFTER}" 2>/dev/null | wc -l || echo 0)" >> "$GITHUB_OUTPUT"
-
-    - name: Detect required modes
-      if: steps.range.outputs.skip != 'true'
-      id: modes
-      shell: bash
-      # Pass channels via env, NOT inline ${{ }}. Substituting the YAML as raw
-      # text into CHANNELS='...' broke on any quote in the config — e.g. an
-      # apostrophe in a comment ("don't") terminated the single-quoted string.
-      env:
         CHANNELS: ${{ inputs.channels }}
-      run: |
-        # Support both old (private/public) and new (dev/community) mode names
-        HAS_DEV=$(echo "$CHANNELS" | grep -cE 'mode:.*(dev|private)' || true)
-        HAS_COMMUNITY=$(echo "$CHANNELS" | grep -cE 'mode:.*(community|public)' || true)
-        echo "has_dev=$([[ $HAS_DEV -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-        echo "has_community=$([[ $HAS_COMMUNITY -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        COOLDOWN: ${{ inputs.cooldown }}
+        STATE_BRANCH: ${{ inputs.state_branch }}
+        ACTION_PATH: ${{ github.action_path }}
+        GH_TOKEN: ${{ github.token }}
+      run: python3 "$ACTION_PATH/publication.py" prepare
 
     - name: Check required secrets
-      if: steps.range.outputs.skip != 'true'
+      if: steps.range.outputs.skip != 'true' && steps.range.outputs.resume != 'true'
       shell: bash
       run: |
         if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
@@ -206,66 +83,21 @@ runs:
         fi
 
     - name: Generate summaries
-      if: steps.range.outputs.skip != 'true'
+      if: steps.range.outputs.skip != 'true' && steps.range.outputs.resume != 'true'
       shell: bash
-      # Pass inputs via env, NOT inline ${{ }} in the script. GitHub substitutes
-      # ${{ }} as raw text before bash runs, so a rules value containing a double
-      # quote (or `$(...)`/backtick) would break the bash string — or execute as a
-      # command. Env values are assigned directly and expand as inert data.
       env:
-        HAS_DEV: ${{ steps.modes.outputs.has_dev }}
-        HAS_COMMUNITY: ${{ steps.modes.outputs.has_community }}
+        GH_TOKEN: ''
+        GITHUB_TOKEN: ''
+        HAS_DEV: ${{ steps.range.outputs.has_dev }}
+        HAS_COMMUNITY: ${{ steps.range.outputs.has_community }}
         BEFORE: ${{ steps.range.outputs.before }}
         AFTER: ${{ steps.range.outputs.after }}
         DEV_RULES: ${{ inputs.dev_rules }}
         COMMUNITY_RULES: ${{ inputs.community_rules }}
         TITLE_STYLE: ${{ inputs.title_style }}
         MAX_BULLETS: ${{ inputs.max_bullets }}
-      run: |
-        TASK=""
-        if [[ "$HAS_DEV" == "true" && "$HAS_COMMUNITY" == "true" ]]; then
-          TASK="Write TWO summaries and save them using the Write tool:
-
-        1. Write /tmp/summary_dev.md — a DEV (technical) summary:
-        $DEV_RULES
-
-        2. Write /tmp/summary_community.md — a COMMUNITY (user-facing) summary:
-        $COMMUNITY_RULES"
-        elif [[ "$HAS_DEV" == "true" ]]; then
-          TASK="Write a DEV (technical) summary and save it using the Write tool to /tmp/summary_dev.md.
-        $DEV_RULES"
-        else
-          TASK="Write a COMMUNITY (user-facing) summary and save it using the Write tool to /tmp/summary_community.md.
-        $COMMUNITY_RULES"
-        fi
-
-        npx -y @anthropic-ai/claude-code --allowedTools "Read,Write,Bash(git *)" -p "
-        You have access to a git repo. The commit range for this push is ${BEFORE}..${AFTER}.
-
-        1. Read the README (or any top-level docs) to understand what this project is.
-        2. Use git log, git diff, and any other tools to understand what changed.
-        3. ${TASK}
-
-        Each summary file should be a complete, well-formatted markdown message ready to send.
-        Include a bold title — style: ${TITLE_STYLE}. Then bullet points summarizing the changes (max ${MAX_BULLETS} bullets).
-        Use markdown formatting naturally (bold, backticks, etc).
-        Keep it concise — each bullet should be one line with an emoji prefix.
-
-        IMPORTANT: Use the Write tool to write each file. Do not output the summaries to stdout.
-        " --max-turns 15 2>/dev/null
-
-        FAILED=false
-        if [[ "$HAS_DEV" == "true" && ! -s /tmp/summary_dev.md ]]; then
-          echo "::error::Claude Code did not produce dev summary"
-          FAILED=true
-        fi
-        if [[ "$HAS_COMMUNITY" == "true" && ! -s /tmp/summary_community.md ]]; then
-          echo "::error::Claude Code did not produce community summary"
-          FAILED=true
-        fi
-        if [[ "$FAILED" == "true" ]]; then
-          exit 1
-        fi
+        ACTION_PATH: ${{ github.action_path }}
+      run: python3 "$ACTION_PATH/summarize.py"
 
     - name: Install uv
       if: steps.range.outputs.skip != 'true'
@@ -274,48 +106,23 @@ runs:
       with:
         version: 0.12.1
 
-    - name: Dispatch to channels
-      id: dispatch
+    - name: Install locked delivery dependencies
+      if: steps.range.outputs.skip != 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        uv venv "$RUNNER_TEMP/dev-updates-venv"
+        uv pip sync --python "$RUNNER_TEMP/dev-updates-venv/bin/python" --require-hashes "$ACTION_PATH/requirements.txt"
+
+    - name: Publish journaled batch
       if: steps.range.outputs.skip != 'true'
       shell: bash
       env:
         CHANNELS: ${{ inputs.channels }}
-        REPO: ${{ github.repository }}
-        COMMITS: ${{ steps.range.outputs.commit_count }}
-        FILES: ${{ steps.range.outputs.files_changed }}
-      run: |
-        # The dispatcher ignores the consumer project because it needs only its two temporary dependencies.
-        uv run --no-project --with telegramify-markdown --with tweepy python3 ${{ github.action_path }}/dispatch.py
-        echo "dispatched=true" >> "$GITHUB_OUTPUT"
-
-    # --- Save state for next run ---
-    # Forward previous state when skipped (cooldown), save new state only when dispatch succeeded
-    - name: Save state
-      if: inputs.cooldown != '' && (steps.range.outputs.skip == 'true' || steps.dispatch.outputs.dispatched == 'true')
-      shell: bash
-      run: |
-        mkdir -p /tmp/state
-        if [[ "${{ steps.range.outputs.skip }}" == "true" ]]; then
-          # Skipped — forward previous state unchanged
-          python3 -c "
-        import json
-        state = {'last_sha': '${{ steps.range.outputs.forward_sha }}', 'last_at': ${{ steps.range.outputs.forward_at || 0 }}}
-        json.dump(state, open('/tmp/state/dev-updates-state.json', 'w'))
-        "
-        else
-          # Posted — save current SHA and timestamp
-          python3 -c "
-        import json, time
-        state = {'last_sha': '$(git rev-parse HEAD)', 'last_at': int(time.time())}
-        json.dump(state, open('/tmp/state/dev-updates-state.json', 'w'))
-        "
-        fi
-
-    - name: Upload state artifact
-      if: inputs.cooldown != '' && (steps.range.outputs.skip == 'true' || steps.dispatch.outputs.dispatched == 'true')
-      uses: actions/upload-artifact@v4
-      with:
-        name: dev-updates-state
-        path: /tmp/state/dev-updates-state.json
-        retention-days: 90
-        overwrite: true
+        STATE_BRANCH: ${{ inputs.state_branch }}
+        BEFORE: ${{ steps.range.outputs.before }}
+        AFTER: ${{ steps.range.outputs.after }}
+        ACTION_PATH: ${{ github.action_path }}
+        GH_TOKEN: ${{ github.token }}
+      run: '"$RUNNER_TEMP/dev-updates-venv/bin/python" "$ACTION_PATH/publication.py" publish'

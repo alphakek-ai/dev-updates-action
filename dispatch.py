@@ -10,11 +10,14 @@ Supported channel types: telegram, discord, slack, twitter.
 import json
 import os
 import re
-import sys
 import urllib.request
 
 # Mode aliases for backward compatibility
 _MODE_ALIASES = {"private": "dev", "public": "community"}
+
+
+class DeliveryNotAttempted(RuntimeError):
+    """Configuration failed before a request could be sent."""
 
 
 def _normalize_mode(mode: str) -> str:
@@ -23,28 +26,11 @@ def _normalize_mode(mode: str) -> str:
 
 
 def _is_required(ch: dict) -> bool:
-    """Channels are required by default. A channel may set `required: false` so a
-    flaky external service (e.g. X/Twitter rate limits, a downed webhook) can fail
-    without failing the whole run — and without blocking state-save, which would
-    otherwise re-post to the channels that DID succeed on the next run.
-
-    Handles both the string values today's parse_channels yields and native bools,
-    in case parse_channels is ever swapped for real YAML parsing."""
+    """Whether a delivery failure must prevent completion of the batch."""
     val = ch.get("required", True)
     if isinstance(val, bool):
         return val
     return str(val).strip().lower() not in ("false", "0", "no")
-
-
-def _resolve_exit(required_failures: int, successes: int) -> int:
-    """Exit code from channel outcomes. Fail (1) if any REQUIRED channel failed,
-    or if nothing was delivered at all (even when every channel was optional —
-    a total delivery failure must never be silent). Otherwise 0."""
-    if required_failures > 0:
-        return 1
-    if successes == 0:
-        return 1
-    return 0
 
 
 def parse_channels(yaml_text: str) -> list[dict]:
@@ -86,7 +72,7 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
     token = os.environ.get(bot_token_env, "")
 
     if not token:
-        raise RuntimeError(f"{bot_token_env} not set")
+        raise DeliveryNotAttempted(f"{bot_token_env} not set")
 
     mode = _normalize_mode(ch.get("mode", "dev"))
     if mode == "community":
@@ -113,13 +99,16 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    urllib.request.urlopen(req)
+    with urllib.request.urlopen(req, timeout=30) as response:
+        result = json.load(response)
+    if not result.get('ok') or not result.get('result', {}).get('message_id'):
+        raise RuntimeError('Telegram did not confirm a message ID')
 
 
 def send_discord(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
     webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
     if not webhook_url:
-        raise RuntimeError("No webhook URL configured")
+        raise DeliveryNotAttempted("No webhook URL configured")
 
     text = f"{content}\n\n[{repo_name}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)"
     payload = {"content": text[:2000]}
@@ -129,13 +118,14 @@ def send_discord(ch: dict, content: str, repo: str, repo_name: str, commits: str
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    urllib.request.urlopen(req)
+    with urllib.request.urlopen(req, timeout=30):
+        pass
 
 
 def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
     webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
     if not webhook_url:
-        raise RuntimeError("No webhook URL configured")
+        raise DeliveryNotAttempted("No webhook URL configured")
 
     text = f"{content}\n\n<https://github.com/{repo}|{repo_name}> · {commits} commit(s) · {files} file(s)"
     payload = {"text": text[:3000]}
@@ -145,7 +135,8 @@ def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, 
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    urllib.request.urlopen(req)
+    with urllib.request.urlopen(req, timeout=30):
+        pass
 
 
 def _limit_cashtags(text: str) -> str:
@@ -178,7 +169,7 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
             ("TWITTER_API_KEY", api_key), ("TWITTER_API_SECRET", api_secret),
             ("TWITTER_ACCESS_TOKEN", access_token), ("TWITTER_ACCESS_TOKEN_SECRET", access_token_secret),
         ] if not val]
-        raise RuntimeError(f"Twitter credentials missing: {', '.join(missing)}")
+        raise DeliveryNotAttempted(f"Twitter credentials missing: {', '.join(missing)}")
 
     client = tweepy.Client(
         consumer_key=api_key,
@@ -226,67 +217,3 @@ DISPATCHERS = {
     "slack": send_slack,
     "twitter": send_twitter,
 }
-
-
-def main() -> None:
-    channels = parse_channels(os.environ.get("CHANNELS", ""))
-    repo = os.environ.get("REPO", "")
-    repo_name = repo.split("/")[-1] if repo else ""
-    commits = os.environ.get("COMMITS", "0")
-    files = os.environ.get("FILES", "0")
-
-    if not channels:
-        print("ERROR: No channels configured")
-        sys.exit(1)
-
-    successes = 0
-    required_failures = 0
-    optional_failures = 0
-
-    for ch in channels:
-        name = ch.get("name", ch.get("type", "unknown"))
-        ch_type = ch.get("type", "telegram")
-        mode = _normalize_mode(ch.get("mode", "dev"))
-        required = _is_required(ch)
-        tag = "required" if required else "optional"
-
-        content = load_summary(mode)
-        dispatcher = DISPATCHERS.get(ch_type)
-
-        error = None
-        if not content:
-            error = f"No {mode} summary generated"
-        elif not dispatcher:
-            error = f"Unknown channel type '{ch_type}'"
-        else:
-            try:
-                dispatcher(ch, content, repo, repo_name, commits, files)
-            except Exception as e:
-                error = str(e)
-
-        if error is None:
-            print(f"OK: {name} ({ch_type}, {mode}, {tag})")
-            successes += 1
-        else:
-            print(f"ERROR: {name} ({ch_type}, {mode}, {tag}): {error}")
-            if required:
-                required_failures += 1
-            else:
-                optional_failures += 1
-
-    exit_code = _resolve_exit(required_failures, successes)
-    if optional_failures > 0:
-        # Only claim "not failing the run" when that's actually true — a required
-        # failure (or zero deliveries) below still exits non-zero.
-        suffix = " — not failing the run" if exit_code == 0 else ""
-        print(f"WARN: {optional_failures} optional channel(s) failed{suffix}")
-    if required_failures > 0:
-        print(f"FATAL: {required_failures} required channel(s) failed")
-    elif successes == 0:
-        print("FATAL: all channels failed — nothing delivered")
-
-    sys.exit(exit_code)
-
-
-if __name__ == "__main__":
-    main()

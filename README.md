@@ -14,6 +14,8 @@ Uses [Claude Code](https://claude.ai/claude-code) to read your git diff and gene
 
 ## Quick Start
 
+Before enabling this workflow, [initialize its publication journal](#upgrading-and-initializing-state), including for a new installation.
+
 ```yaml
 # .github/workflows/dev-updates.yml
 name: Dev Updates
@@ -21,18 +23,23 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: dev-updates-publication
+  cancel-in-progress: false
+
 jobs:
   notify:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 50
+          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: alphakek-ai/dev-updates-action@v1
+      - uses: alphakek-ai/dev-updates-action@v2
         with:
           channels: |
             - name: team-chat
@@ -59,7 +66,7 @@ Each channel is a YAML block with:
 | `name` | Yes | Display name for logging |
 | `type` | Yes | `telegram`, `discord`, `slack`, or `twitter` |
 | `mode` | Yes | `dev` (technical details) or `community` (user-facing) |
-| `required` | No | `true` (default) or `false`. A `required: false` channel may fail without failing the run — use for flaky external channels (e.g. Twitter/X) so one outage doesn't red the build or trigger duplicate re-posts on the channels that succeeded. The run still fails if a required channel fails, or if *no* channel delivers. |
+| `required` | No | `true` (default) or `false`. A `required: false` channel may fail without failing the run — use for flaky external channels (e.g. Twitter/X) so one outage doesn't red the build or trigger duplicate re-posts on the channels that succeeded. Ambiguous failures on required channels need operator reconciliation. Optional failures are not retried for that batch. The run still fails if a required channel fails, or if *no* channel delivers. |
 
 ### Telegram
 
@@ -103,7 +110,7 @@ Tweets are auto-truncated to 280 chars with a link to the repo.
 You can customize the rules:
 
 ```yaml
-- uses: alphakek-ai/dev-updates-action@v1
+- uses: alphakek-ai/dev-updates-action@v2
   with:
     community_rules: |
       Lead each bullet with the user benefit, in plain language.
@@ -151,21 +158,25 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '0 */12 * * *'  # safety net — catches skipped updates
+    - cron: '17 * * * *'  # check hourly; cooldown limits publication to every 12 hours
+
+concurrency:
+  group: dev-updates-publication
+  cancel-in-progress: false
 
 jobs:
   notify:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
-      actions: read  # required for cooldown state (reads previous run artifacts)
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 50
+          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: alphakek-ai/dev-updates-action@v1
+      - uses: alphakek-ai/dev-updates-action@v2
         with:
           cooldown: '12h'  # post at most once per 12 hours
           channels: |
@@ -175,18 +186,61 @@ jobs:
 How it works:
 - **First push** after cooldown expires → posts immediately with all changes since last notification
 - **Subsequent pushes** within cooldown → skipped silently
-- **Cron trigger** → catches any skipped updates (set cron interval to match cooldown)
-- State is stored in GitHub Actions variables (`DEV_UPDATES_LAST_SHA`, `DEV_UPDATES_LAST_AT`)
+- **Cron trigger** → checks for pending changes hourly; generation runs only when publication is due
+- Pushes and scheduled runs both respect the cooldown.
+- State and frozen messages live in a dedicated `dev-updates-state/*` Git branch, updated with an explicit compare-and-swap lease. GitHub run listings and expiring artifacts are not used.
+- Successful channel deliveries are recorded individually. Retrying an unfinished batch sends only unattempted channels or those whose previous attempt was definitively rejected.
+- Timeouts, crashes during delivery, and failed post-delivery journal writes leave a `pending` record. The action reports an error instead of automatically sending that message again.
+
+## Upgrading and initializing state
+
+Version 2 requires `contents: write`, full Git history, and an initialized state branch. Version 1 remains unchanged. Use one state branch and one concurrency group per publisher; do not cancel a running publisher.
+
+Stop the old publisher during cutover. Inspect its latest successful delivery logs and the corresponding `dev-updates-state.json` artifact; verify every configured channel delivered before taking its `last_sha` and `last_at`. From a full checkout of the consumer repository, with the new action code available locally, run:
+
+```sh
+python3 /path/to/dev-updates-action/publication.py initialize \
+  --branch dev-updates-state/default --sha FULL_LAST_PUBLISHED_SHA --at UNIX_TIMESTAMP
+```
+
+This creates only the dedicated state branch. It refuses to overwrite existing state. For a new publisher, explicitly choose the commit before the first changes you want announced and use timestamp 0. Set the action's `state_branch` input if not using the default. Enable the updated workflow after initialization. Source-branch history is untouched.
+
+The journal contains generated summaries; use a private repository for private summaries. Use a branch ruleset to restrict who can modify the journal to the publisher and trusted operators. `GITHUB_TOKEN` with `contents: write` is repository-wide, not branch-scoped. Never delete or reset the journal to recover a failed run.
+
+## Reconciling uncertain delivery
+
+A `pending` required channel means delivery may have happened. Inspect the destination and the journal's frozen batch before choosing an outcome. Optional channels are abandoned without retry on any failure, including uncertain delivery, so they cannot block required channels:
+
+```sh
+python3 /path/to/dev-updates-action/publication.py resolve \
+  --branch dev-updates-state/default --channel CHANNEL_NAME --outcome sent
+```
+
+Use `--outcome retry` only after verifying that the message was not delivered and that the original publisher has stopped. Use `--outcome abandon` to explicitly skip an unfinished delivery, including a permanent rejection (deleted chat/thread or malformed frozen message). Then rerun with the original channel configuration to finish that batch before changing channel configuration. Already-sent channels remain skipped. Resolution itself sends nothing. Do not resolve while a publisher is running.
+
+There is no exactly-once guarantee across Git and messaging APIs: a lost response cannot prove whether a message was delivered. The journal makes that uncertainty explicit and prevents blind retries.
+
+If every channel is optional and all fail, the batch is abandoned and the run reports an error. Its changes are not automatically replayed, since an unacknowledged optional message may already exist at its destination.
+
+If generation itself repeatedly fails and no batch exists, an operator can intentionally skip an unpublished range:
+
+```sh
+python3 /path/to/dev-updates-action/publication.py advance \
+  --branch dev-updates-state/default --sha FULL_DESCENDANT_SHA --reason 'Why these changes will not be announced'
+```
+
+This sends nothing, refuses backward/divergent moves and outstanding batches, and records the skipped range and reason in the journal. Pause the publisher while making this decision. Generation bounds the supplied log/stat/diff to about 80 KiB; read-only tools remain available for additional source context.
 
 Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
-
-State is stored as a workflow artifact (90-day retention). No extra permissions or PATs needed beyond the default `GITHUB_TOKEN`.
 
 ## Requirements
 
 - `CLAUDE_CODE_OAUTH_TOKEN` secret — for Claude Code ([get one here](https://console.anthropic.com))
 - Channel-specific tokens/webhooks as secrets
-- `actions: read` permission (only if using cooldown, for reading previous run artifacts)
+- `contents: write` permission for journal writes, an initialized state branch, and `fetch-depth: 0`
+- `persist-credentials: false` on checkout; only preparation and publication receive the Git token
+
+Summary generation uses read-only model tools in Claude Code safe mode; trusted code captures the returned JSON and writes the summaries. Delivery dependencies are version- and hash-locked in `requirements.txt`.
 
 ## License
 

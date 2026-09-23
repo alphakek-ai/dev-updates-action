@@ -16,4 +16,4 @@ jobs:
           version: 0.12.1
 
       - name: Run tests
-        run: uv run --no-project --with pytest --with telegramify-markdown --with tweepy pytest test_dispatch.py -v
+        run: uv run --no-project --with pytest --with-requirements requirements.txt pytest -v

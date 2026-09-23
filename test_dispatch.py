@@ -1,6 +1,8 @@
 """Tests for dispatch.py — channel parsing, summary loading."""
 
 import os
+import io
+import json
 
 import pytest
 
@@ -9,10 +11,33 @@ from dispatch import (
     _is_required,
     _limit_cashtags,
     _normalize_mode,
-    _resolve_exit,
     load_summary,
     parse_channels,
 )
+
+
+@pytest.mark.parametrize('body', [
+    {'ok': False, 'error_code': 429},
+    {'ok': True, 'result': {}},
+])
+def test_telegram_requires_confirmed_message_id(monkeypatch, body):
+    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+    monkeypatch.setattr(dispatch.urllib.request, 'urlopen',
+                        lambda req, timeout: io.BytesIO(json.dumps(body).encode()))
+    with pytest.raises(RuntimeError, match='confirm'):
+        dispatch.send_telegram({'chat_id': 'test'}, 'Update', 'owner/repo', 'repo', '1', '1')
+
+
+def test_telegram_success_consumes_acknowledgement(monkeypatch):
+    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+    requests = []
+    def post(req, timeout):
+        requests.append((json.loads(req.data), timeout))
+        return io.BytesIO(b'{"ok":true,"result":{"message_id":123}}')
+    monkeypatch.setattr(dispatch.urllib.request, 'urlopen', post)
+    dispatch.send_telegram({'chat_id': 'test'}, 'Update', 'owner/repo', 'repo', '1', '1')
+    assert requests[0][0]['chat_id'] == 'test'
+    assert requests[0][1] == 30
 
 
 class TestLimitCashtags:
@@ -163,62 +188,6 @@ class TestIsRequired:
         # If parse_channels is ever swapped for real YAML, native bools must work.
         assert _is_required({"required": True}) is True
         assert _is_required({"required": False}) is False
-
-
-class TestResolveExit:
-    def test_all_succeed(self):
-        assert _resolve_exit(required_failures=0, successes=3) == 0
-
-    def test_optional_failure_with_a_success_passes(self):
-        # The Twitter-403 scenario: required channels OK, an optional one failed.
-        assert _resolve_exit(required_failures=0, successes=2) == 0
-
-    def test_required_failure_fails(self):
-        assert _resolve_exit(required_failures=1, successes=2) == 1
-
-    def test_total_failure_fails_even_if_all_optional(self):
-        # Nothing delivered must never be silent, even with no required channels.
-        assert _resolve_exit(required_failures=0, successes=0) == 1
-
-
-class TestMainWarnSuffix:
-    """The WARN line must only promise 'not failing the run' when it's true."""
-
-    def _run(self, channels_yaml, dispatchers, monkeypatch, capsys):
-        monkeypatch.setenv("CHANNELS", channels_yaml)
-        monkeypatch.setenv("REPO", "owner/repo")
-        monkeypatch.setattr(dispatch, "DISPATCHERS", dispatchers)
-        with open("/tmp/summary_dev.md", "w") as f:
-            f.write("**title**\n- x")
-        try:
-            with pytest.raises(SystemExit) as exc:
-                dispatch.main()
-        finally:
-            os.unlink("/tmp/summary_dev.md")
-        return exc.value.code, capsys.readouterr().out
-
-    def test_optional_only_failure_says_not_failing(self, monkeypatch, capsys):
-        ok = lambda *a, **k: None  # noqa: E731
-        boom = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("403"))  # noqa: E731
-        yaml = (
-            "- name: tg\n  type: telegram\n  mode: dev\n"
-            "- name: x\n  type: twitter\n  mode: dev\n  required: false\n"
-        )
-        code, out = self._run(yaml, {"telegram": ok, "twitter": boom}, monkeypatch, capsys)
-        assert code == 0
-        assert "WARN:" in out and "not failing the run" in out
-
-    def test_required_also_fails_drops_not_failing(self, monkeypatch, capsys):
-        boom = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # noqa: E731
-        yaml = (
-            "- name: tg\n  type: telegram\n  mode: dev\n"
-            "- name: x\n  type: twitter\n  mode: dev\n  required: false\n"
-        )
-        code, out = self._run(yaml, {"telegram": boom, "twitter": boom}, monkeypatch, capsys)
-        assert code == 1
-        assert "WARN:" in out  # optional failure still reported
-        assert "not failing the run" not in out  # ...but the run IS failing
-        assert "FATAL: 1 required channel(s) failed" in out
 
 
 class TestLoadSummary:

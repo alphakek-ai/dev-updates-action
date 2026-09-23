@@ -3,7 +3,7 @@ import urllib.error
 
 import pytest
 
-from publication import DeliveryNotAttempted, Journal, git, prepare, publish, seconds
+from publication import DeliveryNotAttempted, Journal, channel_fingerprint, git, prepare, publish, seconds
 
 
 CHANNELS = [{'name': 'team', 'type': 'telegram', 'mode': 'dev'},
@@ -327,3 +327,49 @@ def test_permanent_required_rejection_can_be_abandoned(history, monkeypatch):
     deliver(journal, commits, lambda *args: pytest.fail('No repeat delivery'))
     changed_channels = [CHANNELS[0], dict(CHANNELS[1], chat_id='replacement-chat')]
     assert prepare(journal, commits[2], '', 300, changed_channels)['before'] == commits[1]
+
+
+def test_operator_can_skip_range_that_failed_generation(history, monkeypatch):
+    from publication import main
+    journal, commits = history
+    assert prepare(journal, commits[1], '', 1000, CHANNELS)['before'] == commits[0]
+    # Generation did not publish anything, so no batch exists.
+    monkeypatch.setattr('sys.argv', ['publication.py', 'advance', '--branch',
+                        'dev-updates-state/test', '--sha', commits[1], '--reason', 'Malformed source fixture'])
+    main()
+    state = journal.load()
+    assert state['last_sha'] == commits[1]
+    assert state['last_override'] == {'before': commits[0], 'after': commits[1], 'reason': 'Malformed source fixture'}
+    assert prepare(journal, commits[2], '', state['last_at'], CHANNELS)['before'] == commits[1]
+
+
+def test_advance_cannot_skip_outstanding_delivery(history, monkeypatch):
+    from publication import main
+    journal, commits = history
+    def timeout(*args):
+        raise TimeoutError()
+    with pytest.raises(RuntimeError):
+        deliver(journal, commits, timeout)
+    monkeypatch.setattr('sys.argv', ['publication.py', 'advance', '--branch',
+                        'dev-updates-state/test', '--sha', commits[2], '--reason', 'Must not skip'])
+    with pytest.raises(RuntimeError, match='outstanding batch'):
+        main()
+    assert journal.load()['last_sha'] == commits[0]
+
+
+def test_advance_rejects_backwards_checkpoint(history, monkeypatch):
+    from publication import main
+    journal, commits = history
+    deliver(journal, commits, lambda *args: None)
+    monkeypatch.setattr('sys.argv', ['publication.py', 'advance', '--branch',
+                        'dev-updates-state/test', '--sha', commits[0], '--reason', 'Must not regress'])
+    with pytest.raises(RuntimeError, match='descendant'):
+        main()
+    assert journal.load()['last_sha'] == commits[1]
+
+
+@pytest.mark.parametrize('channel', [{'name': 'bad', 'type': 'unknown'},
+    {'name': 'bad', 'mode': 'unknown'}, {'type': 'telegram'}])
+def test_bad_channel_configuration_fails_clearly(channel):
+    with pytest.raises(ValueError, match='[Cc]hannel'):
+        channel_fingerprint([channel])

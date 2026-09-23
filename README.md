@@ -189,7 +189,7 @@ How it works:
 - **Cron trigger** → checks for pending changes hourly; generation runs only when publication is due
 - Pushes and scheduled runs both respect the cooldown.
 - State and frozen messages live in a dedicated `dev-updates-state/*` Git branch, updated with an explicit compare-and-swap lease. GitHub run listings and expiring artifacts are not used.
-- Successful channel deliveries are recorded individually. Retrying an unfinished batch sends only channels whose previous attempt was definitively rejected.
+- Successful channel deliveries are recorded individually. Retrying an unfinished batch sends only unattempted channels or those whose previous attempt was definitively rejected.
 - Timeouts, crashes during delivery, and failed post-delivery journal writes leave a `pending` record. The action reports an error instead of automatically sending that message again.
 
 ## Upgrading and initializing state
@@ -221,6 +221,15 @@ Use `--outcome retry` only after verifying that the message was not delivered an
 There is no exactly-once guarantee across Git and messaging APIs: a lost response cannot prove whether a message was delivered. The journal makes that uncertainty explicit and prevents blind retries.
 
 If every channel is optional and all fail, the batch is abandoned and the run reports an error. Its changes are not automatically replayed, since an unacknowledged optional message may already exist at its destination.
+
+If generation itself repeatedly fails and no batch exists, an operator can intentionally skip an unpublished range:
+
+```sh
+python3 /path/to/dev-updates-action/publication.py advance \
+  --branch dev-updates-state/default --sha FULL_DESCENDANT_SHA --reason 'Why these changes will not be announced'
+```
+
+This sends nothing, refuses backward/divergent moves and outstanding batches, and records the skipped range and reason in the journal. Pause the publisher while making this decision. Generation bounds the supplied log/stat/diff to about 80 KiB; read-only tools remain available for additional source context.
 
 Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
 

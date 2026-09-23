@@ -6,10 +6,18 @@ from pathlib import Path
 import subprocess
 
 
+def bounded(text, size):
+    encoded = text.encode()
+    if len(encoded) <= size:
+        return text
+    return encoded[:size].decode(errors='ignore') + '\n[Truncated; use read-only tools for further context.]'
+
+
 def generate():
     modes = [mode for mode in ('dev', 'community') if os.environ['HAS_' + mode.upper()] == 'true']
     before, after = os.environ['BEFORE'], os.environ['AFTER']
-    log = subprocess.check_output(['git', 'log', '--format=%h %s', f'{before}..{after}'], text=True)
+    log = subprocess.check_output(['git', 'log', '-100', '--format=%h %s', f'{before}..{after}'], text=True)
+    stat = subprocess.check_output(['git', 'diff', '--stat', before, after], text=True)
     diff = subprocess.check_output(['git', 'diff', '--no-ext-diff', '--no-textconv', before, after], text=True)
     schema = {'type': 'object', 'properties': {mode: {'type': 'string', 'minLength': 1} for mode in modes},
               'required': modes, 'additionalProperties': False}
@@ -19,7 +27,8 @@ def generate():
         f'Title style: {os.environ["TITLE_STYLE"]}. Maximum bullets: {os.environ["MAX_BULLETS"]}.',
         'Use a bold title and concise emoji-prefixed bullets.',
         *[f'{mode} summary instructions: {os.environ[mode.upper() + "_RULES"]}' for mode in modes],
-        'Commit log:', log, 'Diff:', diff,
+        'Commit log (up to 100 entries):', bounded(log, 8192),
+        'Changed-file overview:', bounded(stat, 8192), 'Diff:', bounded(diff, 65536),
     ])
     # Explicit environment excludes Git and channel credentials. Safe mode disables
     # repository hooks/plugins/settings; only read-only model tools are available.
@@ -37,6 +46,9 @@ def generate():
     summaries = response['structured_output']
     if set(summaries) != set(modes) or any(not isinstance(s, str) or not s.strip() for s in summaries.values()):
         raise ValueError('Incomplete generated summaries')
+    token = os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')
+    if any((token and token in summary) or 'sk-ant-' in summary for summary in summaries.values()):
+        raise ValueError('Generated summary contains a credential; refusing to save it')
     for mode, summary in summaries.items():
         Path(f'/tmp/summary_{mode}.md').write_text(summary)
 

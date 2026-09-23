@@ -77,6 +77,11 @@ def ancestor(before, after):
 
 
 def channel_fingerprint(channels):
+    for ch in channels:
+        if not ch.get('name') or ch.get('type', 'telegram') not in DISPATCHERS:
+            raise ValueError('Each channel requires a name and a supported type')
+        if _normalize_mode(ch.get('mode', 'dev')) not in ('dev', 'community'):
+            raise ValueError('Channel mode must be dev or community')
     names = [ch['name'] for ch in channels]
     if not names or len(set(names)) != len(names):
         raise ValueError('Channels require unique names')
@@ -173,14 +178,29 @@ def publish(journal, channels, before, after, summaries, repo, now, senders=DISP
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['prepare', 'publish', 'initialize', 'resolve'])
+    parser.add_argument('command', choices=['prepare', 'publish', 'initialize', 'resolve', 'advance'])
     parser.add_argument('--branch', default=os.environ.get('STATE_BRANCH', 'dev-updates-state/default'))
     parser.add_argument('--sha')
     parser.add_argument('--at', type=int)
+    parser.add_argument('--reason')
     parser.add_argument('--channel')
     parser.add_argument('--outcome', choices=['sent', 'retry', 'abandon'])
     args = parser.parse_args()
     journal = Journal(args.branch)
+    if args.command == 'advance':
+        if not args.sha or not args.reason or not args.reason.strip():
+            parser.error('advance requires --sha and --reason for the intentionally skipped range')
+        state = journal.load()
+        if state['batch']:
+            raise RuntimeError('Resolve the outstanding batch before advancing')
+        sha = git('rev-parse', '--verify', args.sha + '^{commit}')
+        if sha == state['last_sha'] or not ancestor(state['last_sha'], sha):
+            raise RuntimeError('Advance requires a descendant of the current checkpoint')
+        state['last_override'] = {'before': state['last_sha'], 'after': sha, 'reason': args.reason}
+        state['last_sha'] = sha
+        state['last_at'] = int(time.time())
+        journal.save()
+        return
     if args.command == 'initialize':
         if not args.sha or args.at is None or args.at < 0:
             parser.error('initialize requires --sha and --at from a verified last publication')

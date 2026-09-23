@@ -57,17 +57,18 @@ def test_invalid_generation_does_not_write_partial_summaries(generation, monkeyp
     assert list(generation.glob('summary_*.md')) == []
 
 
-def test_verbose_cli_event_array_uses_terminal_result(generation, monkeypatch):
-    response = [
-        {'type': 'system', 'subtype': 'init'},
-        {'type': 'assistant', 'message': {'content': []}},
-        {'type': 'result', 'subtype': 'success', 'is_error': False,
-         'structured_output': {'dev': 'Developer summary', 'community': 'Community summary'}},
-    ]
+@pytest.mark.parametrize('terminal_only', [False, True])
+def test_captured_cli_response_saves_both_summaries(generation, monkeypatch, terminal_only):
+    # Captured 2026-09-23 with CLI 2.1.270 on backend 7d35dde6..6bf8f831.
+    # Preserve event order and result fields; remove message/account/session data
+    # and replace summary text. Replay also covers the single-result output mode.
+    response = json.loads((Path(__file__).parent / 'fixtures/claude-2.1.270-generation.json').read_text())
+    if terminal_only:
+        response = response[-1]
     monkeypatch.setattr(summarize.subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(stdout=json.dumps(response)))
     summarize.generate()
-    assert (generation / 'summary_dev.md').read_text() == 'Developer summary'
-    assert (generation / 'summary_community.md').read_text() == 'Community summary'
+    assert (generation / 'summary_dev.md').read_text() == 'Captured dev summary'
+    assert (generation / 'summary_community.md').read_text() == 'Captured community summary'
 
 
 def test_large_range_has_bounded_prompt(generation, monkeypatch):

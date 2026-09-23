@@ -70,6 +70,7 @@ runs:
         COOLDOWN: ${{ inputs.cooldown }}
         STATE_BRANCH: ${{ inputs.state_branch }}
         ACTION_PATH: ${{ github.action_path }}
+        GH_TOKEN: ${{ github.token }}
       run: python3 "$ACTION_PATH/publication.py" prepare
 
     - name: Detect required modes
@@ -105,6 +106,8 @@ runs:
       # quote (or `$(...)`/backtick) would break the bash string — or execute as a
       # command. Env values are assigned directly and expand as inert data.
       env:
+        GH_TOKEN: ''
+        GITHUB_TOKEN: ''
         HAS_DEV: ${{ steps.modes.outputs.has_dev }}
         HAS_COMMUNITY: ${{ steps.modes.outputs.has_community }}
         BEFORE: ${{ steps.range.outputs.before }}
@@ -175,4 +178,5 @@ runs:
         BEFORE: ${{ steps.range.outputs.before }}
         AFTER: ${{ steps.range.outputs.after }}
         ACTION_PATH: ${{ github.action_path }}
+        GH_TOKEN: ${{ github.token }}
       run: uv run --no-project --with telegramify-markdown --with tweepy python3 "$ACTION_PATH/publication.py" publish

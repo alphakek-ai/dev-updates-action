@@ -14,6 +14,8 @@ Uses [Claude Code](https://claude.ai/claude-code) to read your git diff and gene
 
 ## Quick Start
 
+Before enabling this workflow, [initialize its publication journal](#upgrading-and-initializing-state), including for a new installation.
+
 ```yaml
 # .github/workflows/dev-updates.yml
 name: Dev Updates
@@ -35,6 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: alphakek-ai/dev-updates-action@v2
         with:
@@ -63,7 +66,7 @@ Each channel is a YAML block with:
 | `name` | Yes | Display name for logging |
 | `type` | Yes | `telegram`, `discord`, `slack`, or `twitter` |
 | `mode` | Yes | `dev` (technical details) or `community` (user-facing) |
-| `required` | No | `true` (default) or `false`. A `required: false` channel may fail without failing the run — use for flaky external channels (e.g. Twitter/X) so one outage doesn't red the build or trigger duplicate re-posts on the channels that succeeded. The run still fails if a required channel fails, or if *no* channel delivers. |
+| `required` | No | `true` (default) or `false`. A `required: false` channel may fail without failing the run — use for flaky external channels (e.g. Twitter/X) so one outage doesn't red the build or trigger duplicate re-posts on the channels that succeeded. Ambiguous failures on required channels need operator reconciliation. Optional failures are not retried for that batch. The run still fails if a required channel fails, or if *no* channel delivers. |
 
 ### Telegram
 
@@ -155,7 +158,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '0 */12 * * *'  # safety net — catches skipped updates
+    - cron: '17 * * * *'  # check hourly; cooldown limits publication to every 12 hours
 
 concurrency:
   group: dev-updates-publication
@@ -167,11 +170,11 @@ jobs:
     permissions:
       contents: write
       id-token: write
-      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: alphakek-ai/dev-updates-action@v2
         with:
@@ -183,7 +186,7 @@ jobs:
 How it works:
 - **First push** after cooldown expires → posts immediately with all changes since last notification
 - **Subsequent pushes** within cooldown → skipped silently
-- **Cron trigger** → catches any skipped updates (set cron interval to match cooldown)
+- **Cron trigger** → checks for pending changes hourly; generation runs only when publication is due
 - Pushes and scheduled runs both respect the cooldown.
 - State and frozen messages live in a dedicated `dev-updates-state/*` Git branch, updated with an explicit compare-and-swap lease. GitHub run listings and expiring artifacts are not used.
 - Successful channel deliveries are recorded individually. Retrying an unfinished batch sends only channels whose previous attempt was definitively rejected.
@@ -206,7 +209,7 @@ The journal contains generated summaries; use a private repository for private s
 
 ## Reconciling uncertain delivery
 
-A `pending` channel means delivery may have happened. Inspect the destination and the journal's frozen batch before choosing an outcome:
+A `pending` required channel means delivery may have happened. Inspect the destination and the journal's frozen batch before choosing an outcome. Optional channels are abandoned without retry on any failure, including uncertain delivery, so they cannot block required channels:
 
 ```sh
 python3 /path/to/dev-updates-action/publication.py resolve \
@@ -219,13 +222,12 @@ There is no exactly-once guarantee across Git and messaging APIs: a lost respons
 
 Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
 
-State is stored as a workflow artifact (90-day retention). No extra permissions or PATs needed beyond the default `GITHUB_TOKEN`.
-
 ## Requirements
 
 - `CLAUDE_CODE_OAUTH_TOKEN` secret — for Claude Code ([get one here](https://console.anthropic.com))
 - Channel-specific tokens/webhooks as secrets
-- `actions: read` permission (only if using cooldown, for reading previous run artifacts)
+- `contents: write` permission for journal writes, an initialized state branch, and `fetch-depth: 0`
+- `persist-credentials: false` on checkout; only preparation and publication receive the Git token
 
 ## License
 

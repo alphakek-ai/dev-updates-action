@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '0 */12 * * *'
+    - cron: '17 * * * *'
 
 concurrency:
   group: self-report-publication
@@ -16,11 +16,11 @@ jobs:
     permissions:
       contents: write
       id-token: write
-      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: ./  # use itself
         with:
@@ -41,9 +41,7 @@ jobs:
             - name: aikek-agent-twitter
               type: twitter
               mode: dev
-              # X/Twitter posting can 403 on app-permission/token issues or rate
-              # limits; don't let it red the run or block state-save (which would
-              # re-post to the Telegram channels above on the next run).
+              # Optional delivery failures do not block Telegram updates.
               required: false
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

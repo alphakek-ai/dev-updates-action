@@ -1,6 +1,7 @@
 """Durable publication checkpoint and per-channel delivery journal."""
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -8,13 +9,18 @@ import re
 import subprocess
 import time
 
-from dispatch import DISPATCHERS, _is_required, _normalize_mode, load_summary, parse_channels
+from dispatch import DISPATCHERS, DeliveryNotAttempted, _is_required, _normalize_mode, load_summary, parse_channels
 
 
 def git(*args, input=None):
+    auth = {}
+    if os.environ.get('GH_TOKEN'):
+        credential = base64.b64encode(('x-access-token:' + os.environ['GH_TOKEN']).encode()).decode()
+        auth = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'http.https://github.com/.extraheader',
+                'GIT_CONFIG_VALUE_0': 'AUTHORIZATION: basic ' + credential}
     return subprocess.check_output(
         ['git', *args], input=input, text=True, timeout=60,
-        env={**os.environ, 'GIT_AUTHOR_NAME': 'github-actions[bot]',
+        env={**os.environ, **auth, 'GIT_AUTHOR_NAME': 'github-actions[bot]',
              'GIT_AUTHOR_EMAIL': '41898282+github-actions[bot]@users.noreply.github.com',
              'GIT_COMMITTER_NAME': 'github-actions[bot]',
              'GIT_COMMITTER_EMAIL': '41898282+github-actions[bot]@users.noreply.github.com'},
@@ -123,6 +129,11 @@ def publish(journal, channels, before, after, summaries, repo, now, senders=DISP
         if status in ('sent', 'skipped'):
             continue
         if status == 'pending':
+            if not _is_required(ch):
+                batch['deliveries'][name] = 'skipped'
+                journal.save()
+                print(f'WARN: {name}: uncertain optional delivery abandoned without retry')
+                continue
             print(f'ERROR: {name}: delivery outcome unknown; operator reconciliation required')
             continue
         if status != 'ready':
@@ -139,7 +150,7 @@ def publish(journal, channels, before, after, summaries, repo, now, senders=DISP
             code = getattr(error, 'code', None)
             if code is None and getattr(error, 'response', None) is not None:
                 code = error.response.status_code
-            if code in (400, 401, 403, 404, 422, 429):
+            if not _is_required(ch) or isinstance(error, DeliveryNotAttempted) or code in (400, 401, 402, 403, 404, 422, 429):
                 batch['deliveries'][name] = 'ready' if _is_required(ch) else 'skipped'
                 journal.save()
             print(f'ERROR: {name}: {type(error).__name__}; status={code}')

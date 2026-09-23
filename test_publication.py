@@ -3,7 +3,7 @@ import urllib.error
 
 import pytest
 
-from publication import Journal, git, prepare, publish, seconds
+from publication import DeliveryNotAttempted, Journal, git, prepare, publish, seconds
 
 
 CHANNELS = [{'name': 'team', 'type': 'telegram', 'mode': 'dev'},
@@ -241,3 +241,57 @@ def test_failure_finalizing_batch_does_not_resend_any_channel(history, monkeypat
     monkeypatch.setattr(journal, 'save', original_save)
     deliver(journal, commits, lambda *args: pytest.fail('Already delivered'))
     assert journal.load()['last_sha'] == commits[1]
+
+
+@pytest.mark.parametrize('error', [TimeoutError(), RuntimeError('Missing configuration'),
+    urllib.error.HTTPError('redacted', 402, '', {}, None),
+    urllib.error.HTTPError('redacted', 503, '', {}, None)])
+def test_optional_outage_cannot_block_next_required_publication(history, error):
+    journal, commits = history
+    channels = [CHANNELS[0], dict(CHANNELS[1], required=False)]
+    calls = []
+    def sender(ch, *args):
+        calls.append(ch['name'])
+        if ch['name'] == 'public':
+            raise error
+    publish(journal, channels, commits[0], commits[1], SUMMARIES, 'owner/repo', lambda: 201,
+            {'telegram': sender})
+    result = prepare(journal, commits[2], '', 202, channels)
+    assert result['before'] == commits[1]
+    publish(journal, channels, commits[1], commits[2], SUMMARIES, 'owner/repo', lambda: 202,
+            {'telegram': sender})
+    assert calls == ['team', 'public', 'team', 'public']
+    assert journal.load()['last_sha'] == commits[2]
+
+
+def test_optional_pending_after_crash_is_abandoned_not_resent(history):
+    journal, commits = history
+    channels = [CHANNELS[0], dict(CHANNELS[1], required=False)]
+    def crash(ch, *args):
+        if ch['name'] == 'public':
+            raise SystemExit('Process killed before acknowledgement')
+    with pytest.raises(SystemExit):
+        publish(journal, channels, commits[0], commits[1], SUMMARIES, 'owner/repo', lambda: 201,
+                {'telegram': crash})
+    publish(journal, channels, commits[0], commits[1], {}, 'owner/repo', lambda: 202,
+            {'telegram': lambda *args: pytest.fail('Must not resend')})
+    assert journal.load()['last_sha'] == commits[1]
+
+
+def test_configuration_failure_before_request_is_retryable(history):
+    journal, commits = history
+    def missing_token(*args):
+        raise DeliveryNotAttempted('Missing token')
+    with pytest.raises(RuntimeError):
+        deliver(journal, commits, missing_token)
+    assert set(journal.load()['batch']['deliveries'].values()) == {'ready'}
+    deliver(journal, commits, lambda *args: None)
+    assert journal.load()['last_sha'] == commits[1]
+
+
+def test_git_auth_is_process_local_not_persisted(history, monkeypatch):
+    monkeypatch.setenv('GH_TOKEN', 'test-only-token')
+    assert git('config', '--get', 'http.https://github.com/.extraheader').startswith('AUTHORIZATION: basic ')
+    monkeypatch.delenv('GH_TOKEN')
+    with pytest.raises(subprocess.CalledProcessError):
+        git('config', '--get', 'http.https://github.com/.extraheader')

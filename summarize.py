@@ -44,7 +44,7 @@ def generate():
         '--output-format', 'json', '--json-schema', json.dumps(schema), '--max-turns', '15',
     ], input=prompt, text=True, capture_output=True, env=env, timeout=600, check=True)
     response = json.loads(result.stdout)
-    # Verbose CLI output is an event array; non-verbose output is one result.
+    # CLI JSON output may be one result or an event array.
     # Only the terminal result establishes success, not a StructuredOutput tool call.
     if isinstance(response, list):
         response = response[-1] if response else None

@@ -37,12 +37,29 @@ def test_generation_captures_text_without_write_or_shell_tools(generation, monke
 @pytest.mark.parametrize('response', [
     {'is_error': True}, {'structured_output': {'dev': 'Only one'}},
     {'structured_output': {'dev': 'Dev', 'community': ''}},
+    [], None, [{'type': 'assistant', 'structured_output': {'dev': 'Dev', 'community': 'Public'}}],
+    [{'type': 'result', 'subtype': 'error_max_turns', 'is_error': True}],
+    [{'type': 'result', 'subtype': 'success'}],
+    [{'type': 'result', 'subtype': 'success', 'structured_output': ['Dev', 'Public']}],
 ])
 def test_invalid_generation_does_not_write_partial_summaries(generation, monkeypatch, response):
     monkeypatch.setattr(summarize.subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(stdout=json.dumps(response)))
     with pytest.raises((ValueError, RuntimeError)):
         summarize.generate()
     assert list(generation.glob('summary_*.md')) == []
+
+
+def test_verbose_cli_event_array_uses_terminal_result(generation, monkeypatch):
+    response = [
+        {'type': 'system', 'subtype': 'init'},
+        {'type': 'assistant', 'message': {'content': []}},
+        {'type': 'result', 'subtype': 'success', 'is_error': False,
+         'structured_output': {'dev': 'Developer summary', 'community': 'Community summary'}},
+    ]
+    monkeypatch.setattr(summarize.subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(stdout=json.dumps(response)))
+    summarize.generate()
+    assert (generation / 'summary_dev.md').read_text() == 'Developer summary'
+    assert (generation / 'summary_community.md').read_text() == 'Community summary'
 
 
 def test_large_range_has_bounded_prompt(generation, monkeypatch):

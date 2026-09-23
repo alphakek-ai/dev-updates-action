@@ -44,10 +44,18 @@ def generate():
         '--output-format', 'json', '--json-schema', json.dumps(schema), '--max-turns', '15',
     ], input=prompt, text=True, capture_output=True, env=env, timeout=600, check=True)
     response = json.loads(result.stdout)
-    if response.get('is_error'):
+    # Verbose CLI output is an event array; non-verbose output is one result.
+    # Only the terminal result establishes success, not a StructuredOutput tool call.
+    if isinstance(response, list):
+        response = response[-1] if response else None
+        if not isinstance(response, dict) or response.get('type') != 'result':
+            raise ValueError('Missing terminal generation result')
+    if not isinstance(response, dict):
+        raise ValueError('Invalid generation response')
+    if response.get('is_error') or response.get('subtype', 'success') != 'success':
         raise RuntimeError('Summary generation failed')
-    summaries = response['structured_output']
-    if set(summaries) != set(modes) or any(not isinstance(s, str) or not s.strip() for s in summaries.values()):
+    summaries = response.get('structured_output')
+    if not isinstance(summaries, dict) or set(summaries) != set(modes) or any(not isinstance(s, str) or not s.strip() for s in summaries.values()):
         raise ValueError('Incomplete generated summaries')
     token = os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')
     if any((token and token in summary) or re.search(r'sk-ant-[A-Za-z0-9_-]{20,}', summary) for summary in summaries.values()):

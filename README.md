@@ -205,7 +205,7 @@ python3 /path/to/dev-updates-action/publication.py initialize \
 
 This creates only the dedicated state branch. It refuses to overwrite existing state. For a new publisher, explicitly choose the commit before the first changes you want announced and use timestamp 0. Set the action's `state_branch` input if not using the default. Enable the updated workflow after initialization. Source-branch history is untouched.
 
-The journal contains generated summaries; use a private repository for private summaries. Grant branch writes only to the publisher and trusted operators. Never delete or reset the journal to recover a failed run.
+The journal contains generated summaries; use a private repository for private summaries. Use a branch ruleset to restrict who can modify the journal to the publisher and trusted operators. `GITHUB_TOKEN` with `contents: write` is repository-wide, not branch-scoped. Never delete or reset the journal to recover a failed run.
 
 ## Reconciling uncertain delivery
 

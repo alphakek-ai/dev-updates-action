@@ -50,9 +50,9 @@ def generate():
         response = response[-1] if response else None
         if not isinstance(response, dict) or response.get('type') != 'result':
             raise ValueError('Missing terminal generation result')
-    if not isinstance(response, dict):
+    if not isinstance(response, dict) or response.get('type') != 'result':
         raise ValueError('Invalid generation response')
-    if response.get('is_error') or response.get('subtype', 'success') != 'success':
+    if response.get('is_error') or response.get('subtype') != 'success':
         raise RuntimeError('Summary generation failed')
     summaries = response.get('structured_output')
     if not isinstance(summaries, dict) or set(summaries) != set(modes) or any(not isinstance(s, str) or not s.strip() for s in summaries.values()):

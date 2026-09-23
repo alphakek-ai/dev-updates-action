@@ -42,7 +42,7 @@ def test_invalid_generation_does_not_write_partial_summaries(generation, monkeyp
     monkeypatch.setattr(summarize.subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(stdout=json.dumps(response)))
     with pytest.raises((ValueError, RuntimeError)):
         summarize.generate()
-    assert list(generation.iterdir()) == []
+    assert list(generation.glob('summary_*.md')) == []
 
 
 def test_large_range_has_bounded_prompt(generation, monkeypatch):
@@ -54,12 +54,37 @@ def test_large_range_has_bounded_prompt(generation, monkeypatch):
     monkeypatch.setattr(summarize.subprocess, 'run', run)
     summarize.generate()
     assert (generation / 'summary_dev.md').read_text() == 'Dev'
+    assert (generation / 'dev-updates-diff.patch').stat().st_size > 65536
 
 
-@pytest.mark.parametrize('secret', ['test-oauth', 'sk-ant-unexpected-token'])
+@pytest.mark.parametrize('secret', ['test-oauth', 'sk-ant-' + 'sensitive-token-' * 4])
 def test_credentials_in_model_output_are_not_saved(generation, monkeypatch, secret):
     monkeypatch.setattr(summarize.subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(
         stdout=json.dumps({'structured_output': {'dev': 'Dev', 'community': secret}})))
     with pytest.raises(ValueError, match='credential'):
         summarize.generate()
-    assert list(generation.iterdir()) == []
+    assert list(generation.glob('summary_*.md')) == []
+
+
+def test_literal_credential_prefix_is_not_treated_as_a_secret(generation, monkeypatch):
+    monkeypatch.setattr(summarize.subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(
+        stdout=json.dumps({'structured_output': {'dev': 'Validate the sk-ant- prefix', 'community': 'Better validation'}})))
+    summarize.generate()
+    assert 'sk-ant-' in (generation / 'summary_dev.md').read_text()
+
+
+def test_non_utf8_diff_is_decoded_without_blocking_generation(generation, monkeypatch):
+    # Execute a real subprocess with invalid UTF-8 output using the same decoding options.
+    import subprocess
+    import sys
+    real_run = subprocess.run
+    def source(command, **kwargs):
+        return real_run([sys.executable, '-c', "import sys; sys.stdout.buffer.write(b'caf\\xe9')"],
+                        stdout=subprocess.PIPE, check=True, **kwargs).stdout
+    monkeypatch.setattr(summarize.subprocess, 'check_output', source)
+    def response(command, **kwargs):
+        assert 'caf\ufffd' in kwargs['input']
+        return SimpleNamespace(stdout=json.dumps({'structured_output': {'dev': 'Dev', 'community': 'Public'}}))
+    monkeypatch.setattr(summarize.subprocess, 'run', response)
+    summarize.generate()
+    assert (generation / 'summary_dev.md').read_text() == 'Dev'

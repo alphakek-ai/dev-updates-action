@@ -295,3 +295,35 @@ def test_git_auth_is_process_local_not_persisted(history, monkeypatch):
     monkeypatch.delenv('GH_TOKEN')
     with pytest.raises(subprocess.CalledProcessError):
         git('config', '--get', 'http.https://github.com/.extraheader')
+
+
+def test_all_optional_uncertain_deliveries_are_never_replayed(history):
+    journal, commits = history
+    channels = [dict(ch, required=False) for ch in CHANNELS]
+    calls = []
+    def timeout(ch, *args):
+        calls.append(ch['name'])
+        raise TimeoutError('Accepted remotely but acknowledgement lost')
+    with pytest.raises(RuntimeError, match='No confirmed deliveries'):
+        publish(journal, channels, commits[0], commits[1], SUMMARIES, 'owner/repo', lambda: 201,
+                {'telegram': timeout})
+    assert prepare(journal, commits[1], '', 202, channels) == {'skip': 'true'}
+    assert prepare(journal, commits[2], '', 202, channels)['before'] == commits[1]
+    assert prepare(journal, commits[2], '12h', 202, channels) == {'skip': 'true'}
+    assert calls == ['team', 'public']
+
+
+def test_permanent_required_rejection_can_be_abandoned(history, monkeypatch):
+    from publication import main
+    journal, commits = history
+    def reject(ch, *args):
+        if ch['name'] == 'public':
+            raise urllib.error.HTTPError('redacted', 400, 'Deleted chat', {}, None)
+    with pytest.raises(RuntimeError):
+        deliver(journal, commits, reject)
+    monkeypatch.setattr('sys.argv', ['publication.py', 'resolve', '--branch',
+                        'dev-updates-state/test', '--channel', 'public', '--outcome', 'abandon'])
+    main()
+    deliver(journal, commits, lambda *args: pytest.fail('No repeat delivery'))
+    changed_channels = [CHANNELS[0], dict(CHANNELS[1], chat_id='replacement-chat')]
+    assert prepare(journal, commits[2], '', 300, changed_channels)['before'] == commits[1]

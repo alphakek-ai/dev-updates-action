@@ -101,10 +101,6 @@ runs:
     - name: Generate summaries
       if: steps.range.outputs.skip != 'true' && steps.range.outputs.resume != 'true'
       shell: bash
-      # Pass inputs via env, NOT inline ${{ }} in the script. GitHub substitutes
-      # ${{ }} as raw text before bash runs, so a rules value containing a double
-      # quote (or `$(...)`/backtick) would break the bash string — or execute as a
-      # command. Env values are assigned directly and expand as inert data.
       env:
         GH_TOKEN: ''
         GITHUB_TOKEN: ''
@@ -116,51 +112,8 @@ runs:
         COMMUNITY_RULES: ${{ inputs.community_rules }}
         TITLE_STYLE: ${{ inputs.title_style }}
         MAX_BULLETS: ${{ inputs.max_bullets }}
-      run: |
-        TASK=""
-        if [[ "$HAS_DEV" == "true" && "$HAS_COMMUNITY" == "true" ]]; then
-          TASK="Write TWO summaries and save them using the Write tool:
-
-        1. Write /tmp/summary_dev.md — a DEV (technical) summary:
-        $DEV_RULES
-
-        2. Write /tmp/summary_community.md — a COMMUNITY (user-facing) summary:
-        $COMMUNITY_RULES"
-        elif [[ "$HAS_DEV" == "true" ]]; then
-          TASK="Write a DEV (technical) summary and save it using the Write tool to /tmp/summary_dev.md.
-        $DEV_RULES"
-        else
-          TASK="Write a COMMUNITY (user-facing) summary and save it using the Write tool to /tmp/summary_community.md.
-        $COMMUNITY_RULES"
-        fi
-
-        npx -y @anthropic-ai/claude-code --allowedTools "Read,Write,Bash(git *)" -p "
-        You have access to a git repo. The commit range for this push is ${BEFORE}..${AFTER}.
-
-        1. Read the README (or any top-level docs) to understand what this project is.
-        2. Use git log, git diff, and any other tools to understand what changed.
-        3. ${TASK}
-
-        Each summary file should be a complete, well-formatted markdown message ready to send.
-        Include a bold title — style: ${TITLE_STYLE}. Then bullet points summarizing the changes (max ${MAX_BULLETS} bullets).
-        Use markdown formatting naturally (bold, backticks, etc).
-        Keep it concise — each bullet should be one line with an emoji prefix.
-
-        IMPORTANT: Use the Write tool to write each file. Do not output the summaries to stdout.
-        " --max-turns 15 2>/dev/null
-
-        FAILED=false
-        if [[ "$HAS_DEV" == "true" && ! -s /tmp/summary_dev.md ]]; then
-          echo "::error::Claude Code did not produce dev summary"
-          FAILED=true
-        fi
-        if [[ "$HAS_COMMUNITY" == "true" && ! -s /tmp/summary_community.md ]]; then
-          echo "::error::Claude Code did not produce community summary"
-          FAILED=true
-        fi
-        if [[ "$FAILED" == "true" ]]; then
-          exit 1
-        fi
+        ACTION_PATH: ${{ github.action_path }}
+      run: python3 "$ACTION_PATH/summarize.py"
 
     - name: Install uv
       if: steps.range.outputs.skip != 'true'
@@ -168,6 +121,15 @@ runs:
       uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       with:
         version: 0.12.1
+
+    - name: Install locked delivery dependencies
+      if: steps.range.outputs.skip != 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        uv venv "$RUNNER_TEMP/dev-updates-venv"
+        uv pip sync --python "$RUNNER_TEMP/dev-updates-venv/bin/python" --require-hashes "$ACTION_PATH/requirements.txt"
 
     - name: Publish journaled batch
       if: steps.range.outputs.skip != 'true'
@@ -179,4 +141,4 @@ runs:
         AFTER: ${{ steps.range.outputs.after }}
         ACTION_PATH: ${{ github.action_path }}
         GH_TOKEN: ${{ github.token }}
-      run: uv run --no-project --with telegramify-markdown --with tweepy python3 "$ACTION_PATH/publication.py" publish
+      run: '"$RUNNER_TEMP/dev-updates-venv/bin/python" "$ACTION_PATH/publication.py" publish'

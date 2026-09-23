@@ -216,9 +216,11 @@ python3 /path/to/dev-updates-action/publication.py resolve \
   --branch dev-updates-state/default --channel CHANNEL_NAME --outcome sent
 ```
 
-Use `--outcome retry` only after verifying that the message was not delivered and that the original publisher has stopped. Then rerun the workflow: already-sent channels remain skipped. Resolution itself sends nothing. Do not resolve while a publisher is running.
+Use `--outcome retry` only after verifying that the message was not delivered and that the original publisher has stopped. Use `--outcome abandon` to explicitly skip an unfinished delivery, including a permanent rejection (deleted chat/thread or malformed frozen message). Then rerun with the original channel configuration to finish that batch before changing channel configuration. Already-sent channels remain skipped. Resolution itself sends nothing. Do not resolve while a publisher is running.
 
 There is no exactly-once guarantee across Git and messaging APIs: a lost response cannot prove whether a message was delivered. The journal makes that uncertainty explicit and prevents blind retries.
+
+If every channel is optional and all fail, the batch is abandoned and the run reports an error. Its changes are not automatically replayed, since an unacknowledged optional message may already exist at its destination.
 
 Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
 
@@ -228,6 +230,8 @@ Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
 - Channel-specific tokens/webhooks as secrets
 - `contents: write` permission for journal writes, an initialized state branch, and `fetch-depth: 0`
 - `persist-credentials: false` on checkout; only preparation and publication receive the Git token
+
+Summary generation uses read-only model tools in Claude Code safe mode; trusted code captures the returned JSON and writes the summaries. Delivery dependencies are version- and hash-locked in `requirements.txt`.
 
 ## License
 

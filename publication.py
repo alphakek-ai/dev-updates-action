@@ -19,7 +19,7 @@ def git(*args, input=None):
         auth = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'http.https://github.com/.extraheader',
                 'GIT_CONFIG_VALUE_0': 'AUTHORIZATION: basic ' + credential}
     return subprocess.check_output(
-        ['git', *args], input=input, text=True, timeout=60,
+        ['git', '-c', 'core.hooksPath=/dev/null', *args], input=input, text=True, timeout=60,
         env={**os.environ, **auth, 'GIT_AUTHOR_NAME': 'github-actions[bot]',
              'GIT_AUTHOR_EMAIL': '41898282+github-actions[bot]@users.noreply.github.com',
              'GIT_COMMITTER_NAME': 'github-actions[bot]',
@@ -160,14 +160,15 @@ def publish(journal, channels, before, after, summaries, repo, now, senders=DISP
         journal.save()
         print(f'OK: {name}')
     statuses = set(batch['deliveries'].values())
-    if statuses == {'skipped'}:
-        batch['deliveries'] = dict.fromkeys(batch['deliveries'], 'ready')
-        journal.save()
-    if not statuses <= {'sent', 'skipped'} or 'sent' not in statuses:
+    if not statuses <= {'sent', 'skipped'}:
         raise RuntimeError('Publication unfinished; successful channels will not be resent')
     state['last_sha'] = after
     state['batch'] = None
+    if 'sent' not in statuses:
+        state['last_at'] = int(now())
     journal.save()
+    if 'sent' not in statuses:
+        raise RuntimeError('No confirmed deliveries; optional batch abandoned without retry')
 
 
 def main():
@@ -177,7 +178,7 @@ def main():
     parser.add_argument('--sha')
     parser.add_argument('--at', type=int)
     parser.add_argument('--channel')
-    parser.add_argument('--outcome', choices=['sent', 'retry'])
+    parser.add_argument('--outcome', choices=['sent', 'retry', 'abandon'])
     args = parser.parse_args()
     journal = Journal(args.branch)
     if args.command == 'initialize':
@@ -191,9 +192,9 @@ def main():
         if not args.channel or not args.outcome:
             parser.error('resolve requires --channel and --outcome')
         state = journal.load()
-        if not state['batch'] or state['batch']['deliveries'].get(args.channel) != 'pending':
-            raise RuntimeError('Only pending deliveries can be reconciled')
-        state['batch']['deliveries'][args.channel] = 'sent' if args.outcome == 'sent' else 'ready'
+        if not state['batch'] or state['batch']['deliveries'].get(args.channel) not in ('pending', 'ready'):
+            raise RuntimeError('Only unfinished deliveries can be reconciled')
+        state['batch']['deliveries'][args.channel] = {'sent': 'sent', 'retry': 'ready', 'abandon': 'skipped'}[args.outcome]
         if args.outcome == 'sent':
             state['last_at'] = int(time.time())
         journal.save()
@@ -212,4 +213,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except RuntimeError as error:
+        print(f'::error::{error}')
+        raise

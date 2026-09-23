@@ -48,8 +48,6 @@ def generate():
     # Only the terminal result establishes success, not a StructuredOutput tool call.
     if isinstance(response, list):
         response = response[-1] if response else None
-        if not isinstance(response, dict) or response.get('type') != 'result':
-            raise ValueError('Missing terminal generation result')
     if not isinstance(response, dict) or response.get('type') != 'result':
         raise ValueError('Invalid generation response')
     if response.get('is_error') or response.get('subtype') != 'success':

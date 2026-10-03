@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import os
+from pathlib import PurePosixPath
 import re
 import subprocess
 import tempfile
@@ -57,8 +58,9 @@ class Journal:
         # Git integrations see journal pushes too. Disable Vercel at the repo root
         # and each configured app root, without copying application code/settings.
         paths = {'vercel.json'} | {
-            path for path in git('ls-tree', '-r', '--name-only', '-z', 'HEAD').split('\0')
-            if path.endswith('/vercel.json')
+            str(PurePosixPath(path).with_name('vercel.json'))
+            for path in git('ls-tree', '-r', '--name-only', '-z', 'HEAD').split('\0')
+            if PurePosixPath(path).name in {'vercel.json', 'vercel.ts', 'vercel.toml'}
         }
         disabled = git('hash-object', '-w', '--stdin',
                        input='{"git":{"deploymentEnabled":false}}\n')

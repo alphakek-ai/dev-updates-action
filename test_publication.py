@@ -47,11 +47,12 @@ def deliver(journal, commits, sender):
 
 def test_journal_disables_vercel_at_each_app_root_without_changing_checkout(history):
     journal, _ = history
-    for name in ['frontend/vercel.json', 'packages/web app/vercel.json']:
+    for name in ['frontend/vercel.json', 'packages/web app/vercel.json',
+                 'typescript/vercel.ts', 'toml/vercel.toml']:
         path = Path(name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('{"git":{"deploymentEnabled":true}}')
-    git('add', '.')
+    git('add', 'frontend', 'packages', 'typescript', 'toml')
     git('commit', '-m', 'test: configure Vercel apps')
     Path('staged.txt').write_text('keep staged changes')
     git('add', 'staged.txt')
@@ -63,7 +64,7 @@ def test_journal_disables_vercel_at_each_app_root_without_changing_checkout(hist
         assert journal.load()['last_at'] == timestamp
         paths = git('ls-tree', '-r', '--name-only', journal.revision).splitlines()
         assert paths == ['frontend/vercel.json', 'packages/web app/vercel.json',
-                         'state.json', 'vercel.json']
+                         'state.json', 'toml/vercel.json', 'typescript/vercel.json', 'vercel.json']
         for path in paths:
             if path.endswith('vercel.json'):
                 assert json.loads(git('show', f'{journal.revision}:{path}')) == {
@@ -85,6 +86,8 @@ def test_next_save_upgrades_state_only_journal_without_changing_checkpoint(histo
     assert git('rev-parse', f'{journal.revision}^') == legacy
     assert json.loads(git('show', f'{journal.revision}:vercel.json')) == {
         'git': {'deploymentEnabled': False}}
+    assert git('ls-tree', '-r', '--name-only', journal.revision).splitlines() == [
+        'state.json', 'vercel.json']
 
 
 @pytest.mark.parametrize('config, expected', [

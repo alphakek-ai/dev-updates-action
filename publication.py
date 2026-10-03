@@ -7,12 +7,13 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 
 from dispatch import DISPATCHERS, DeliveryNotAttempted, _is_required, _normalize_mode, load_summary, parse_channels
 
 
-def git(*args, input=None):
+def git(*args, input=None, env=None):
     auth = {}
     if os.environ.get('GH_TOKEN'):
         credential = base64.b64encode(('x-access-token:' + os.environ['GH_TOKEN']).encode()).decode()
@@ -20,7 +21,7 @@ def git(*args, input=None):
                 'GIT_CONFIG_VALUE_0': 'AUTHORIZATION: basic ' + credential}
     return subprocess.check_output(
         ['git', '-c', 'core.hooksPath=/dev/null', *args], input=input, text=True, timeout=60,
-        env={**os.environ, **auth, 'GIT_AUTHOR_NAME': 'github-actions[bot]',
+        env={**os.environ, **(env or {}), **auth, 'GIT_AUTHOR_NAME': 'github-actions[bot]',
              'GIT_AUTHOR_EMAIL': '41898282+github-actions[bot]@users.noreply.github.com',
              'GIT_COMMITTER_NAME': 'github-actions[bot]',
              'GIT_COMMITTER_EMAIL': '41898282+github-actions[bot]@users.noreply.github.com'},
@@ -53,7 +54,22 @@ class Journal:
 
     def save(self):
         blob = git('hash-object', '-w', '--stdin', input=json.dumps(self.state, sort_keys=True))
-        tree = git('mktree', input=f'100644 blob {blob}\tstate.json\n')
+        # Git integrations see journal pushes too. Disable Vercel at the repo root
+        # and each configured app root, without copying application code/settings.
+        paths = {'vercel.json'} | {
+            path for path in git('ls-tree', '-r', '--name-only', '-z', 'HEAD').split('\0')
+            if path.endswith('/vercel.json')
+        }
+        disabled = git('hash-object', '-w', '--stdin',
+                       input='{"git":{"deploymentEnabled":false}}\n')
+        # A private index leaves the consumer's checkout and staged files intact.
+        with tempfile.TemporaryDirectory() as directory:
+            env = {'GIT_INDEX_FILE': os.path.join(directory, 'index')}
+            git('read-tree', '--empty', env=env)
+            entries = f'100644 {blob}\tstate.json\0' + ''.join(
+                f'100644 {disabled}\t{path}\0' for path in sorted(paths))
+            git('update-index', '-z', '--index-info', input=entries, env=env)
+            tree = git('write-tree', env=env)
         parent = ['-p', self.revision] if self.revision else []
         commit = git('commit-tree', tree, *parent, '-m', 'chore: record publication state')
         # The explicit lease also rejects a stale reader before it can send.

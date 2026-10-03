@@ -189,6 +189,7 @@ How it works:
 - **Cron trigger** → checks for pending changes hourly; generation runs only when publication is due
 - Pushes and scheduled runs both respect the cooldown.
 - State and frozen messages live in a dedicated `dev-updates-state/*` Git branch, updated with an explicit compare-and-swap lease. GitHub run listings and expiring artifacts are not used.
+- Every journal save disables Vercel Git deployments on the state branch: it writes `vercel.json` with `git.deploymentEnabled: false` at the repository root and at every tracked `vercel.json` path in the checked-out source commit. This covers monorepo apps with their own JSON configuration; app roots without one must add a `vercel.json` to the source branch. Existing journals gain these files on their next save. Source configuration and application files are not copied or modified.
 - Successful channel deliveries are recorded individually. Retrying an unfinished batch sends only unattempted channels or those whose previous attempt was definitively rejected.
 - Timeouts, crashes during delivery, and failed post-delivery journal writes leave a `pending` record. The action reports an error instead of automatically sending that message again.
 

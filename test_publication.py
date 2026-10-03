@@ -1,4 +1,5 @@
 import subprocess
+import json
 import os
 from pathlib import Path
 import sys
@@ -42,6 +43,48 @@ def history(tmp_path, monkeypatch):
 def deliver(journal, commits, sender):
     return publish(journal, CHANNELS, commits[0], commits[1], SUMMARIES,
                    'owner/repo', lambda: 200, {'telegram': sender})
+
+
+def test_journal_disables_vercel_at_each_app_root_without_changing_checkout(history):
+    journal, _ = history
+    for name in ['frontend/vercel.json', 'packages/web app/vercel.json']:
+        path = Path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"git":{"deploymentEnabled":true}}')
+    git('add', '.')
+    git('commit', '-m', 'test: configure Vercel apps')
+    Path('staged.txt').write_text('keep staged changes')
+    git('add', 'staged.txt')
+    index = git('write-tree')
+    head = git('rev-parse', 'HEAD')
+    for timestamp in [200, 300]:
+        journal.state['last_at'] = timestamp
+        journal.save()
+        assert journal.load()['last_at'] == timestamp
+        paths = git('ls-tree', '-r', '--name-only', journal.revision).splitlines()
+        assert paths == ['frontend/vercel.json', 'packages/web app/vercel.json',
+                         'state.json', 'vercel.json']
+        for path in paths:
+            if path.endswith('vercel.json'):
+                assert json.loads(git('show', f'{journal.revision}:{path}')) == {
+                    'git': {'deploymentEnabled': False}}
+        assert git('write-tree') == index
+        assert git('rev-parse', 'HEAD') == head
+        assert json.loads(Path('frontend/vercel.json').read_text())['git']['deploymentEnabled']
+
+
+def test_next_save_upgrades_state_only_journal_without_changing_checkpoint(history):
+    journal, _ = history
+    blob = git('rev-parse', f'{journal.revision}:state.json')
+    tree = git('mktree', input=f'100644 blob {blob}\tstate.json\n')
+    legacy = git('commit-tree', tree, '-p', journal.revision, '-m', 'test: legacy journal')
+    git('push', 'origin', f'{legacy}:{journal.ref}')
+    state = journal.load()
+    journal.save()
+    assert journal.load() == state
+    assert git('rev-parse', f'{journal.revision}^') == legacy
+    assert json.loads(git('show', f'{journal.revision}:vercel.json')) == {
+        'git': {'deploymentEnabled': False}}
 
 
 @pytest.mark.parametrize('config, expected', [

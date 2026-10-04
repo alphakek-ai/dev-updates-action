@@ -39,7 +39,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: alphakek-ai/dev-updates-action@v2
+      - uses: alphakek-ai/dev-updates-action@v3
         with:
           channels: |
             - name: team-chat
@@ -110,7 +110,7 @@ Tweets are auto-truncated to 280 chars with a link to the repo.
 You can customize the rules:
 
 ```yaml
-- uses: alphakek-ai/dev-updates-action@v2
+- uses: alphakek-ai/dev-updates-action@v3
   with:
     community_rules: |
       Lead each bullet with the user benefit, in plain language.
@@ -176,7 +176,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: alphakek-ai/dev-updates-action@v2
+      - uses: alphakek-ai/dev-updates-action@v3
         with:
           cooldown: '12h'  # post at most once per 12 hours
           channels: |
@@ -188,24 +188,36 @@ How it works:
 - **Subsequent pushes** within cooldown → skipped silently
 - **Cron trigger** → checks for pending changes hourly; generation runs only when publication is due
 - Pushes and scheduled runs both respect the cooldown.
-- State and frozen messages live in a dedicated `dev-updates-state/*` Git branch, updated with an explicit compare-and-swap lease. GitHub run listings and expiring artifacts are not used.
+- State and frozen messages live in a dedicated Git ref under `refs/dev-updates/`, updated with an explicit compare-and-swap lease. It is deliberately not a branch: GitHub sends no push or create webhooks for refs outside `refs/heads/` and `refs/tags/`, so journal writes never trigger branch-driven integrations (Vercel, Netlify, CI) and do not appear in branch lists. GitHub run listings and expiring artifacts are not used.
 - Successful channel deliveries are recorded individually. Retrying an unfinished batch sends only unattempted channels or those whose previous attempt was definitively rejected.
 - Timeouts, crashes during delivery, and failed post-delivery journal writes leave a `pending` record. The action reports an error instead of automatically sending that message again.
 
 ## Upgrading and initializing state
 
-Version 2 requires `contents: write`, full Git history, and an initialized state branch. Version 1 remains unchanged. Use one state branch and one concurrency group per publisher; do not cancel a running publisher.
+Version 3 requires `contents: write`, full Git history, and an initialized state ref. Versions 1 and 2 remain unchanged. Use one state ref and one concurrency group per publisher; do not cancel a running publisher.
 
 Stop the old publisher during cutover. Inspect its latest successful delivery logs and the corresponding `dev-updates-state.json` artifact; verify every configured channel delivered before taking its `last_sha` and `last_at`. From a full checkout of the consumer repository, with the new action code available locally, run:
 
 ```sh
 python3 /path/to/dev-updates-action/publication.py initialize \
-  --branch dev-updates-state/default --sha FULL_LAST_PUBLISHED_SHA --at UNIX_TIMESTAMP
+  --ref refs/dev-updates/default --sha FULL_LAST_PUBLISHED_SHA --at UNIX_TIMESTAMP
 ```
 
-This creates only the dedicated state branch. It refuses to overwrite existing state. For a new publisher, explicitly choose the commit before the first changes you want announced and use timestamp 0. Set the action's `state_branch` input if not using the default. Enable the updated workflow after initialization. Source-branch history is untouched.
+This creates only the dedicated state ref. It refuses to overwrite existing state. For a new publisher, explicitly choose the commit before the first changes you want announced and use timestamp 0. Set the action's `state_ref` input if not using the default. Enable the updated workflow after initialization. Source-branch history is untouched.
 
-The journal contains generated summaries; use a private repository for private summaries. Use a branch ruleset to restrict who can modify the journal to the publisher and trusted operators. `GITHUB_TOKEN` with `contents: write` is repository-wide, not branch-scoped. Never delete or reset the journal to recover a failed run.
+### Upgrading from v2
+
+v2 kept the same journal on a `dev-updates-state/*` branch, so every write was a branch push that triggered branch-driven integrations. With the v2 publisher stopped, copy the journal to a ref and delete the branch:
+
+```sh
+git fetch --no-tags origin refs/heads/dev-updates-state/default
+git push origin FETCH_HEAD:refs/dev-updates/default
+git push origin --delete dev-updates-state/default
+```
+
+The history and lease semantics are unchanged; only the ref moves. Then switch the workflow to `@v3` and replace `state_branch` with `state_ref`.
+
+The journal contains generated summaries; use a private repository for private summaries. Branch and tag rulesets do not cover `refs/dev-updates/`; anyone with write access can modify the journal. `GITHUB_TOKEN` with `contents: write` is repository-wide. Never delete or reset the journal to recover a failed run.
 
 ## Reconciling uncertain delivery
 
@@ -213,7 +225,7 @@ A `pending` required channel means delivery may have happened. Inspect the desti
 
 ```sh
 python3 /path/to/dev-updates-action/publication.py resolve \
-  --branch dev-updates-state/default --channel CHANNEL_NAME --outcome sent
+  --ref refs/dev-updates/default --channel CHANNEL_NAME --outcome sent
 ```
 
 Use `--outcome retry` only after verifying that the message was not delivered and that the original publisher has stopped. Use `--outcome abandon` to explicitly skip an unfinished delivery, including a permanent rejection (deleted chat/thread or malformed frozen message). Then rerun with the original channel configuration to finish that batch before changing channel configuration. Already-sent channels remain skipped. Resolution itself sends nothing. Do not resolve while a publisher is running.
@@ -226,7 +238,7 @@ If generation itself repeatedly fails and no batch exists, an operator can inten
 
 ```sh
 python3 /path/to/dev-updates-action/publication.py advance \
-  --branch dev-updates-state/default --sha FULL_DESCENDANT_SHA --reason 'Why these changes will not be announced'
+  --ref refs/dev-updates/default --sha FULL_DESCENDANT_SHA --reason 'Why these changes will not be announced'
 ```
 
 This sends nothing, refuses backward/divergent moves and outstanding batches, and records the skipped range and reason in the journal. Pause the publisher while making this decision. Generation bounds the supplied log/stat/diff to about 80 KiB; read-only tools remain available for additional source context.
@@ -237,7 +249,7 @@ Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
 
 - `CLAUDE_CODE_OAUTH_TOKEN` secret — for Claude Code ([get one here](https://console.anthropic.com))
 - Channel-specific tokens/webhooks as secrets
-- `contents: write` permission for journal writes, an initialized state branch, and `fetch-depth: 0`
+- `contents: write` permission for journal writes, an initialized state ref, and `fetch-depth: 0`
 - `persist-credentials: false` on checkout; only preparation and publication receive the Git token
 
 Summary generation uses read-only model tools in Claude Code safe mode; trusted code captures the returned JSON and writes the summaries. Delivery dependencies are version- and hash-locked in `requirements.txt`.

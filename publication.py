@@ -44,7 +44,8 @@ class Journal:
         # propagate. Never infer a checkpoint from workflow-run listing order.
         remote = git('ls-remote', '--refs', 'origin', self.ref)
         if not remote:
-            raise RuntimeError('State ref missing; explicitly initialize the publication checkpoint')
+            raise RuntimeError('State ref missing; explicitly initialize the publication checkpoint '
+                               'or migrate a v2 state branch (README: Upgrading from v2)')
         git('fetch', '--no-tags', 'origin', self.ref)
         self.revision = git('rev-parse', 'FETCH_HEAD')
         self.state = json.loads(git('show', self.revision + ':state.json'))

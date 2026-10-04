@@ -212,12 +212,13 @@ v2 kept the same journal on a `dev-updates-state/*` branch, so every write was a
 ```sh
 git fetch --no-tags origin refs/heads/dev-updates-state/default
 git push origin FETCH_HEAD:refs/dev-updates/default
+git ls-remote origin refs/dev-updates/default  # must print the same commit before deleting
 git push origin --delete dev-updates-state/default
 ```
 
 The history and lease semantics are unchanged; only the ref moves. Then switch the workflow to `@v3` and replace `state_branch` with `state_ref`.
 
-The journal contains generated summaries; use a private repository for private summaries. Branch and tag rulesets do not cover `refs/dev-updates/`; anyone with write access can modify the journal. `GITHUB_TOKEN` with `contents: write` is repository-wide. Never delete or reset the journal to recover a failed run.
+The journal contains generated summaries; use a private repository for private summaries. Branch and tag rulesets do not cover `refs/dev-updates/`; anyone with write access can modify the journal. The lease only guards concurrent publishers: a manual force-push rewrites the checkpoint and can cause duplicate or skipped announcements. `GITHUB_TOKEN` with `contents: write` is repository-wide. Never delete or reset the journal to recover a failed run.
 
 ## Reconciling uncertain delivery
 

@@ -212,8 +212,8 @@ v2 kept the same journal on a `dev-updates-state/*` branch, so every write was a
 ```sh
 git fetch --no-tags origin refs/heads/dev-updates-state/default
 git push origin FETCH_HEAD:refs/dev-updates/default
-git ls-remote origin refs/dev-updates/default  # must print the same commit before deleting
-git push origin --delete dev-updates-state/default
+test "$(git rev-parse FETCH_HEAD)" = "$(git ls-remote origin refs/dev-updates/default | cut -f1)" \
+  && git push origin --delete dev-updates-state/default
 ```
 
 The history and lease semantics are unchanged; only the ref moves. Then switch the workflow to `@v3` and replace `state_branch` with `state_ref`.

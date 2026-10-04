@@ -10,9 +10,9 @@ inputs:
   channels:
     description: 'YAML list of channel configurations'
     required: true
-  state_branch:
-    description: 'Dedicated initialized publication journal branch; never a source branch'
-    default: 'dev-updates-state/default'
+  state_ref:
+    description: 'Initialized publication journal ref under refs/dev-updates/ (not a branch, so it triggers no push integrations)'
+    default: 'refs/dev-updates/default'
   cooldown:
     description: 'Minimum time between notifications (e.g., 6h, 1d, 30m). Empty = post on every push.'
     required: false
@@ -68,7 +68,7 @@ runs:
       env:
         CHANNELS: ${{ inputs.channels }}
         COOLDOWN: ${{ inputs.cooldown }}
-        STATE_BRANCH: ${{ inputs.state_branch }}
+        STATE_REF: ${{ inputs.state_ref }}
         ACTION_PATH: ${{ github.action_path }}
         GH_TOKEN: ${{ github.token }}
       run: python3 "$ACTION_PATH/publication.py" prepare
@@ -119,7 +119,7 @@ runs:
       shell: bash
       env:
         CHANNELS: ${{ inputs.channels }}
-        STATE_BRANCH: ${{ inputs.state_branch }}
+        STATE_REF: ${{ inputs.state_ref }}
         BEFORE: ${{ steps.range.outputs.before }}
         AFTER: ${{ steps.range.outputs.after }}
         ACTION_PATH: ${{ github.action_path }}

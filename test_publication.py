@@ -33,7 +33,7 @@ def history(tmp_path, monkeypatch):
         git('add', 'source.txt')
         git('commit', '-m', f'feat: change {i}')
         commits.append(git('rev-parse', 'HEAD'))
-    journal = Journal('dev-updates-state/test')
+    journal = Journal('refs/dev-updates/test')
     journal.state = {'version': 1, 'last_sha': commits[0], 'last_at': 100, 'batch': None}
     journal.save()
     return journal, commits
@@ -58,7 +58,7 @@ def test_prepare_cli_modes_match_publication(history, tmp_path, config, expected
     subprocess.run([sys.executable, str(PUBLICATION_SCRIPT), 'prepare'], check=True,
                    capture_output=True, text=True,
                    env={**os.environ, 'CHANNELS': config, 'COOLDOWN': '',
-                        'STATE_BRANCH': 'dev-updates-state/test', 'GITHUB_OUTPUT': str(output)})
+                        'STATE_REF': 'refs/dev-updates/test', 'GITHUB_OUTPUT': str(output)})
     values = dict(line.split('=', 1) for line in output.read_text().splitlines())
     detected = {mode for mode in ('dev', 'community') if values[f'has_{mode}'] == 'true'}
     assert detected == expected
@@ -151,7 +151,7 @@ def test_failed_pre_send_write_sends_nothing(history, monkeypatch):
 
 def test_stale_reader_cannot_overwrite_newer_checkpoint(history):
     journal, commits = history
-    stale = Journal('dev-updates-state/test')
+    stale = Journal('refs/dev-updates/test')
     stale.load()
     deliver(journal, commits, lambda *args: None)
     stale.state['last_at'] = 999
@@ -162,7 +162,7 @@ def test_stale_reader_cannot_overwrite_newer_checkpoint(history):
 
 def test_concurrent_publisher_loses_lease_before_sending(history, monkeypatch):
     journal, commits = history
-    competitor = Journal('dev-updates-state/test')
+    competitor = Journal('refs/dev-updates/test')
     original_save = journal.save
     calls = []
     def racing_save():
@@ -181,15 +181,28 @@ def test_missing_remote_fails_closed(history):
         prepare(journal, commits[1], '', 1000, CHANNELS)
 
 
-def test_missing_branch_does_not_bootstrap_implicitly(history):
+def test_missing_ref_does_not_bootstrap_implicitly(history):
     _, commits = history
     with pytest.raises(RuntimeError, match='explicitly initialize'):
-        prepare(Journal('dev-updates-state/missing'), commits[1], '', 1000, CHANNELS)
+        prepare(Journal('refs/dev-updates/missing'), commits[1], '', 1000, CHANNELS)
+
+
+@pytest.mark.parametrize('ref', ['refs/heads/dev-updates-state/test', 'refs/tags/dev-updates', 'dev-updates-state/test'])
+def test_journal_refuses_branch_and_tag_refs(ref):
+    with pytest.raises(ValueError, match='refs/dev-updates/'):
+        Journal(ref)
+
+
+def test_journal_writes_create_no_branch_or_tag(history):
+    journal, commits = history
+    deliver(journal, commits, lambda *args: None)
+    assert git('ls-remote', '--heads', '--tags', 'origin') == ''
+    assert git('ls-remote', 'origin', 'refs/dev-updates/test').split()[0] == journal.revision
 
 
 def test_initialization_cannot_overwrite_existing_state(history):
     journal, commits = history
-    other = Journal('dev-updates-state/test')
+    other = Journal('refs/dev-updates/test')
     other.state = dict(journal.state, last_sha=commits[2])
     with pytest.raises(subprocess.CalledProcessError):
         other.save()
@@ -253,8 +266,8 @@ def test_resolve_ambiguous_delivery_then_retry_only_missing_channel(history, mon
             raise TimeoutError()
     with pytest.raises(RuntimeError):
         deliver(journal, commits, sender)
-    monkeypatch.setattr('sys.argv', ['publication.py', 'resolve', '--branch',
-                        'dev-updates-state/test', '--channel', 'public', '--outcome', 'sent'])
+    monkeypatch.setattr('sys.argv', ['publication.py', 'resolve', '--ref',
+                        'refs/dev-updates/test', '--channel', 'public', '--outcome', 'sent'])
     main()
     deliver(journal, commits, lambda *args: pytest.fail('Already delivered'))
     assert journal.load()['last_sha'] == commits[1]
@@ -354,8 +367,8 @@ def test_permanent_required_rejection_can_be_abandoned(history, monkeypatch):
             raise urllib.error.HTTPError('redacted', 400, 'Deleted chat', {}, None)
     with pytest.raises(RuntimeError):
         deliver(journal, commits, reject)
-    monkeypatch.setattr('sys.argv', ['publication.py', 'resolve', '--branch',
-                        'dev-updates-state/test', '--channel', 'public', '--outcome', 'abandon'])
+    monkeypatch.setattr('sys.argv', ['publication.py', 'resolve', '--ref',
+                        'refs/dev-updates/test', '--channel', 'public', '--outcome', 'abandon'])
     main()
     deliver(journal, commits, lambda *args: pytest.fail('No repeat delivery'))
     changed_channels = [CHANNELS[0], dict(CHANNELS[1], chat_id='replacement-chat')]
@@ -367,8 +380,8 @@ def test_operator_can_skip_range_that_failed_generation(history, monkeypatch):
     journal, commits = history
     assert prepare(journal, commits[1], '', 1000, CHANNELS)['before'] == commits[0]
     # Generation did not publish anything, so no batch exists.
-    monkeypatch.setattr('sys.argv', ['publication.py', 'advance', '--branch',
-                        'dev-updates-state/test', '--sha', commits[1], '--reason', 'Malformed source fixture'])
+    monkeypatch.setattr('sys.argv', ['publication.py', 'advance', '--ref',
+                        'refs/dev-updates/test', '--sha', commits[1], '--reason', 'Malformed source fixture'])
     main()
     state = journal.load()
     assert state['last_sha'] == commits[1]
@@ -383,8 +396,8 @@ def test_advance_cannot_skip_outstanding_delivery(history, monkeypatch):
         raise TimeoutError()
     with pytest.raises(RuntimeError):
         deliver(journal, commits, timeout)
-    monkeypatch.setattr('sys.argv', ['publication.py', 'advance', '--branch',
-                        'dev-updates-state/test', '--sha', commits[2], '--reason', 'Must not skip'])
+    monkeypatch.setattr('sys.argv', ['publication.py', 'advance', '--ref',
+                        'refs/dev-updates/test', '--sha', commits[2], '--reason', 'Must not skip'])
     with pytest.raises(RuntimeError, match='outstanding batch'):
         main()
     assert journal.load()['last_sha'] == commits[0]
@@ -394,8 +407,8 @@ def test_advance_rejects_backwards_checkpoint(history, monkeypatch):
     from publication import main
     journal, commits = history
     deliver(journal, commits, lambda *args: None)
-    monkeypatch.setattr('sys.argv', ['publication.py', 'advance', '--branch',
-                        'dev-updates-state/test', '--sha', commits[0], '--reason', 'Must not regress'])
+    monkeypatch.setattr('sys.argv', ['publication.py', 'advance', '--ref',
+                        'refs/dev-updates/test', '--sha', commits[0], '--reason', 'Must not regress'])
     with pytest.raises(RuntimeError, match='descendant'):
         main()
     assert journal.load()['last_sha'] == commits[1]

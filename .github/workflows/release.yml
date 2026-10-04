@@ -1,6 +1,6 @@
 name: Release
 
-# Publish v2 only after the tested main commit passes CI.
+# Publish v3 only after the tested main commit passes CI.
 on:
   workflow_run:
     workflows: ["Tests"]
@@ -23,23 +23,23 @@ jobs:
           # Tag the exact commit that Tests validated, not whatever is newest.
           ref: ${{ github.event.workflow_run.head_sha }}
           # Full history (cheap on this repo) so the regression guard below can
-          # compare $SHA against v2 with `git merge-base --is-ancestor`.
+          # compare $SHA against v3 with `git merge-base --is-ancestor`.
           fetch-depth: 0
 
-      - name: Move v2 to the tested commit (only if it advances)
+      - name: Move v3 to the tested commit (only if it advances)
         env:
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin 'refs/tags/v2:refs/tags/v2' || true
-          # Don't regress v2. Tests runs can complete out of order, so an older
-          # commit's run may finish after a newer one already advanced v2 — skip
-          # if v2 is already at or ahead of this SHA.
-          if git rev-parse -q --verify v2 >/dev/null && git merge-base --is-ancestor "$SHA" v2; then
-            echo "::notice::v2 already at/ahead of ${SHA:0:8} — skipping"
+          git fetch origin 'refs/tags/v3:refs/tags/v3' || true
+          # Don't regress v3. Tests runs can complete out of order, so an older
+          # commit's run may finish after a newer one already advanced v3 — skip
+          # if v3 is already at or ahead of this SHA.
+          if git rev-parse -q --verify v3 >/dev/null && git merge-base --is-ancestor "$SHA" v3; then
+            echo "::notice::v3 already at/ahead of ${SHA:0:8} — skipping"
             exit 0
           fi
-          git tag -f v2 "$SHA"
-          git push -f origin "refs/tags/v2"
-          echo "::notice::Advanced v2 -> ${SHA:0:8}"
+          git tag -f v3 "$SHA"
+          git push -f origin "refs/tags/v3"
+          echo "::notice::Advanced v3 -> ${SHA:0:8}"

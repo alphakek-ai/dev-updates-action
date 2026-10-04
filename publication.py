@@ -28,10 +28,13 @@ def git(*args, input=None):
 
 
 class Journal:
-    def __init__(self, branch):
-        if not branch.startswith('dev-updates-state/'):
-            raise ValueError('State branch must start with dev-updates-state/')
-        self.ref = 'refs/heads/' + branch
+    def __init__(self, ref):
+        # Outside refs/heads/ and refs/tags/ on purpose: GitHub emits no push or create
+        # webhooks for other namespaces, so journal writes never trigger branch-driven
+        # integrations (Vercel, CI) in the consumer repository.
+        if not ref.startswith('refs/dev-updates/'):
+            raise ValueError('State ref must start with refs/dev-updates/')
+        self.ref = ref
         git('check-ref-format', self.ref)
         self.revision = ''
         self.state = None
@@ -41,7 +44,8 @@ class Journal:
         # propagate. Never infer a checkpoint from workflow-run listing order.
         remote = git('ls-remote', '--refs', 'origin', self.ref)
         if not remote:
-            raise RuntimeError('State branch missing; explicitly initialize the publication checkpoint')
+            raise RuntimeError('State ref missing; explicitly initialize the publication checkpoint '
+                               'or migrate a v2 state branch (README: Upgrading from v2)')
         git('fetch', '--no-tags', 'origin', self.ref)
         self.revision = git('rev-parse', 'FETCH_HEAD')
         self.state = json.loads(git('show', self.revision + ':state.json'))
@@ -179,14 +183,14 @@ def publish(journal, channels, before, after, summaries, repo, now, senders=DISP
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('command', choices=['prepare', 'publish', 'initialize', 'resolve', 'advance'])
-    parser.add_argument('--branch', default=os.environ.get('STATE_BRANCH', 'dev-updates-state/default'))
+    parser.add_argument('--ref', default=os.environ.get('STATE_REF', 'refs/dev-updates/default'))
     parser.add_argument('--sha')
     parser.add_argument('--at', type=int)
     parser.add_argument('--reason')
     parser.add_argument('--channel')
     parser.add_argument('--outcome', choices=['sent', 'retry', 'abandon'])
     args = parser.parse_args()
-    journal = Journal(args.branch)
+    journal = Journal(args.ref)
     if args.command == 'advance':
         if not args.sha or not args.reason or not args.reason.strip():
             parser.error('advance requires --sha and --reason for the intentionally skipped range')

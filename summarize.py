@@ -41,7 +41,7 @@ def generate():
         f'bullet list of 1 to {os.environ["MAX_BULLETS"]} single-line items (at most {submit.BULLET_MAX} characters of '
         'text each, each starting with one fitting emoji). Nothing else: no other paragraphs, HTML, images, tables, '
         'quotes, code blocks or nested lists. The publisher appends the footer.',
-        'Dev bullets may use bold, italics, `inline code` and [links](https://...). Community text may use bold and '
+        'Dev bullets may use bold, italics, `inline code` and [links](https://github.com/...). Community text may use bold and '
         'italics only: no code, links, file paths, or version numbers.',
         f'Run `{check}` to validate the file and preview the exact published messages; fix every reported error. '
         'It is the only shell command available.',

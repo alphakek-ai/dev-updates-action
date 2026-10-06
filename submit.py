@@ -41,8 +41,9 @@ def _inline_errors(where, tokens, kind, mode):
     errors = []
     for token in tokens:
         if token.nesting == -1 or token.type in ALLOWED[kind, mode]:
-            if token.type == 'link_open' and not token.attrs.get('href', '').startswith(('https://', 'http://')):
-                errors.append(f'{where}: links must point to an http(s) URL')
+            # The diff is untrusted input; links may not lead readers off GitHub.
+            if token.type == 'link_open' and not str(token.attrs.get('href', '')).startswith('https://github.com/'):
+                errors.append(f'{where}: links must point to https://github.com/; remove other links')
             if token.type == 'code_inline' and '`' in token.content:
                 errors.append(f'{where}: has a backtick inside inline code; remove it')
             continue

@@ -76,7 +76,7 @@ def outline(markdown: str) -> tuple[list, list[list]]:
     return title, inlines[1:]
 
 
-def _inline(tokens: list, text, code, strong: str, em: str, link: str) -> str:
+def _inline(tokens: list, text, code, strong: str, em: str, link) -> str:
     out: list[str] = []
     opened: list[tuple[int, object]] = []
     for token in tokens:
@@ -90,10 +90,11 @@ def _inline(tokens: list, text, code, strong: str, em: str, link: str) -> str:
             start, opening = opened.pop()
             inner = "".join(out[start:])
             del out[start:]
-            fmt = {"strong_open": strong, "em_open": em, "link_open": link}[opening.type]
-            # markdown-it percent-encodes hrefs except parentheses, which would end a markdown link early.
-            url = str(opening.attrs.get("href", "")).replace("(", "%28").replace(")", "%29")
-            out.append(fmt.format(inner, url=url))
+            if opening.type == "link_open":
+                # markdown-it percent-encodes hrefs except parentheses, which would end a markdown link early.
+                out.append(link(inner, str(opening.attrs["href"]).replace("(", "%28").replace(")", "%29")))
+            else:
+                out.append({"strong_open": strong, "em_open": em}[opening.type].format(inner))
     return "".join(out)
 
 
@@ -110,7 +111,7 @@ def _discord_escape(text: str) -> str:
 
 
 def render_discord(title: list, bullets: list, mode: str, repo: str, commits: str, files: str) -> str:
-    line = lambda tokens: _inline(tokens, _discord_escape, lambda code: f"`{code}`", "**{}**", "*{}*", "[{}]({url})")
+    line = lambda tokens: _inline(tokens, _discord_escape, lambda code: f"`{code}`", "**{}**", "*{}*", lambda text, url: f"[{text}]({url})")
     footer = f"[{_discord_escape(repo.split('/')[-1])}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)"
     return "\n".join([f"**{line(title)}**", "", *(f"- {line(b)}" for b in bullets), "", footer])
 
@@ -120,13 +121,14 @@ def _slack_escape(text: str) -> str:
 
 
 def render_slack(title: list, bullets: list, mode: str, repo: str, commits: str, files: str) -> str:
-    line = lambda tokens: _inline(tokens, _slack_escape, lambda code: f"`{_slack_escape(code)}`", "*{}*", "_{}_", "<{url}|{}>")
+    line = lambda tokens: _inline(tokens, _slack_escape, lambda code: f"`{_slack_escape(code)}`", "*{}*", "_{}_",
+                                  lambda text, url: f"<{_slack_escape(url)}|{text}>")
     footer = f"<https://github.com/{repo}|{_slack_escape(repo.split('/')[-1])}> · {commits} commit(s) · {files} file(s)"
     return "\n".join([f"*{line(title)}*", "", *(f"• {line(b)}" for b in bullets), "", footer])
 
 
 def render_twitter(title: list, bullets: list, mode: str, repo: str, commits: str, files: str) -> str:
-    line = lambda tokens: _inline(tokens, str, str, "{}", "{}", "{} ({url})")
+    line = lambda tokens: _inline(tokens, str, str, "{}", "{}", lambda text, url: f"{text} ({url})")
     lines = [line(title), "", *(f"• {line(b)}" for b in bullets), "", _stats(repo, commits, files)]
     if mode == "dev":
         lines += ["", f"https://github.com/{repo}"]
@@ -143,11 +145,11 @@ def render(kind: str, markdown: str, mode: str, repo: str, commits: str, files: 
         return render_telegram(markdown, mode, repo, commits, files)
     title, bullets = outline(markdown)
     limit = limit or LIMITS.get(kind, 0)
-    for count in range(len(bullets), -1, -1):
+    for count in range(len(bullets), 0, -1):
         text = RENDERERS[kind](title, bullets[:count], mode, repo, commits, files)
         if not limit or len(text) <= limit:
-            break
-    return text
+            return text
+    raise DeliveryNotAttempted(f"Even one bullet exceeds the {kind} limit of {limit} characters")
 
 
 def send_telegram(ch: dict, markdown: str, repo: str, commits: str, files: str) -> None:

@@ -63,6 +63,10 @@ def _inline_errors(where, tokens, kind, mode):
     prose = ' '.join(token.content for token in tokens if token.type == 'text')
     if re.search(r'[*_~]', prose):
         errors.append(f'{where}: has a literal "*", "_" or "~", which some channels format; rephrase without it')
+    if re.search(r'://|\bwww\.', prose):
+        errors.append(f'{where}: contains a bare URL; use a markdown link to https://github.com/ (dev) or remove it')
+    if re.search(r'(?<![\w@])@[A-Za-z_]', prose):
+        errors.append(f'{where}: mentions an @account, which notifies it on Telegram; remove the mention')
     if re.search(r'\$\d', prose):
         errors.append(f'{where}: has "$" before a digit, which Telegram renders as math; write amounts like "5 USD"')
     for pattern, message in COMMUNITY if mode == 'community' else []:

@@ -58,6 +58,16 @@ def test_long_messages_drop_trailing_bullets_and_keep_footer(kind, limit):
     assert 'one' in text and 'three' not in text and text.endswith('3 file(s)')
 
 
+def test_message_without_room_for_a_bullet_is_not_sent():
+    with pytest.raises(dispatch.DeliveryNotAttempted, match='twitter limit'):
+        dispatch.render('twitter', '**Update**\n\n- ' + 'x' * 250 + '\n', 'community', 'owner/repo', '2', '3', 280)
+
+
+def test_slack_escapes_link_targets():
+    text = dispatch.render('slack', '**Update**\n\n- [diff](https://github.com/o/r/compare?a=1&b=2)\n', 'dev', 'o/r', '1', '1')
+    assert '<https://github.com/o/r/compare?a=1&amp;b=2|diff>' in text
+
+
 @pytest.mark.parametrize('body', [
     {'ok': False, 'error_code': 429},
     {'ok': True, 'result': {}},

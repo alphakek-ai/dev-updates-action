@@ -54,10 +54,10 @@ def generate():
     ])
     # dontAsk denies everything not allowed here. --setting-sources "" ignores repository and user
     # settings (and their hooks) while still loading these hooks; --safe-mode would disable them.
-    hook = [{'type': 'command', 'command': check + ' --hook'}]
     settings = {
         'permissions': {'allow': ['Read', 'Grep', 'Glob', f'Edit(/{update_file})', f'Bash({check})']},
-        'hooks': {'PreToolUse': [{'matcher': 'Bash', 'hooks': hook}], 'Stop': [{'hooks': hook}]},
+        'hooks': {'PreToolUse': [{'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': check + ' --guard'}]}],
+                  'Stop': [{'hooks': [{'type': 'command', 'command': check + ' --hook'}]}]},
     }
     # Explicit environment excludes Git and channel credentials.
     env = {key: value for key, value in os.environ.items()

@@ -38,7 +38,6 @@ def test_agent_is_locked_down_to_reading_writing_update_and_checking(generation,
     def check(command, **kwargs):
         option = lambda name: command[command.index(name) + 1]
         script = 'python3 ' + str(Path(summarize.__file__).with_name('submit.py').resolve())
-        hook = [{'type': 'command', 'command': script + ' --hook'}]
         settings = json.loads(option('--settings'))
         assert '--safe-mode' not in command and option('--setting-sources') == ''
         assert option('--model') == 'claude-opus-5' and option('--permission-mode') == 'dontAsk'
@@ -46,7 +45,9 @@ def test_agent_is_locked_down_to_reading_writing_update_and_checking(generation,
         assert option('--mcp-config') == '{"mcpServers":{}}' and '--strict-mcp-config' in command
         assert settings['permissions']['allow'] == [
             'Read', 'Grep', 'Glob', f'Edit(/{generation}/update.json)', f'Bash({script})']
-        assert settings['hooks'] == {'PreToolUse': [{'matcher': 'Bash', 'hooks': hook}], 'Stop': [{'hooks': hook}]}
+        assert settings['hooks'] == {
+            'PreToolUse': [{'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': script + ' --guard'}]}],
+            'Stop': [{'hooks': [{'type': 'command', 'command': script + ' --hook'}]}]}
         assert 'GH_TOKEN' not in kwargs['env'] and 'TELEGRAM_BOT_TOKEN' not in kwargs['env']
         assert kwargs['env']['CLAUDE_CODE_OAUTH_TOKEN'] == 'test-oauth'
         assert kwargs['cwd'] == generation

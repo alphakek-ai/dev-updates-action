@@ -45,10 +45,11 @@ def test_renderers_produce_exact_escaped_messages(render, mode, update, expected
     assert render(update, mode, 'owner/repo', '2', '3') == expected
 
 
-def test_twitter_crops_whole_bullets_and_keeps_footer():
-    update = {'title': 'Update', 'bullets': ['one', 'two ' * 30]}
-    tweet = dispatch.render_twitter(update, 'community', 'owner/repo', '2', '3', max_length=60)
-    assert tweet == 'Update\n\none\n\nrepo · 2 commit(s) · 3 file(s)'
+@pytest.mark.parametrize('kind, limit', [('twitter', 60), ('discord', 0)])
+def test_long_messages_drop_trailing_bullets_and_keep_footer(kind, limit):
+    update = {'title': 'Update', 'bullets': ['one', '-' * 1000, 'three']}
+    text = dispatch.render(kind, update, 'community', 'owner/repo', '2', '3', limit)
+    assert 'one' in text and 'three' not in text and text.endswith('3 file(s)')
 
 
 @pytest.mark.parametrize('body', [
@@ -73,7 +74,7 @@ def test_telegram_success_consumes_acknowledgement(monkeypatch):
     dispatch.send_telegram({'chat_id': 'test'}, COMMUNITY, 'owner/repo', '1', '1')
     assert requests[0][0]['chat_id'] == 'test'
     assert requests[0][0]['parse_mode'] == 'HTML'
-    assert requests[0][0]['text'] == dispatch.render_telegram(COMMUNITY, 'dev', 'owner/repo', '1', '1')
+    assert requests[0][0]['text'] == dispatch.render('telegram', COMMUNITY, 'dev', 'owner/repo', '1', '1')
     assert requests[0][1] == 30
 
 

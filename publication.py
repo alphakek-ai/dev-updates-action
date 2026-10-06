@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 
 from dispatch import DISPATCHERS, DeliveryNotAttempted, _is_required, _normalize_mode, parse_channels
@@ -134,7 +135,8 @@ def publish(journal, channels, before, after, update_file, max_bullets, repo, no
         journal.save()
     if (batch['before'], batch['after'], batch['channels']) != (before, after, fingerprint):
         raise RuntimeError('Outstanding publication does not match prepared range/channels')
-    errors = submit.validate(batch['summaries'], modes, max_bullets)
+    # Frozen text passed validation when journaled; this rejects batches from older releases.
+    errors = submit.validate(batch['summaries'], modes, sys.maxsize)
     if errors and 'ready' in batch['deliveries'].values():
         raise ValueError('Outstanding batch holds an invalid update; abandon its channels with resolve:\n'
                          + '\n'.join(errors))

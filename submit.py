@@ -1,7 +1,7 @@
 """Validate the generated update.json and preview the exact message per channel.
 
-The summarizing agent may run `python3 submit.py` at any time; Claude Code hooks
-run `python3 submit.py --hook`; publication re-validates before sending.
+The summarizing agent may run `python3 submit.py` at any time; Claude Code runs it
+with --hook on Stop and --guard before Bash; publication re-validates before sending.
 """
 
 import json
@@ -11,18 +11,16 @@ import re
 import shlex
 import sys
 
-from dispatch import render_discord, render_slack, render_telegram, render_twitter
+from dispatch import RENDERERS, render
 
 TITLE_MAX = 80
 BULLET_MAX = 280
-TOTAL_MAX = 3500  # Leaves room for the footer under Telegram's 4096-character limit.
 MAX_BLOCKS = 4
 COMMAND = 'python3 ' + shlex.quote(str(Path(__file__).resolve()))
-RENDERERS = {'telegram': render_telegram, 'discord': render_discord,
-             'slack': render_slack, 'twitter': render_twitter}
 
 MARKUP = [
-    (re.compile(r'\*\*|__|~~'), 'contains markdown emphasis ({!r}); write plain text'),
+    (re.compile(r'[*_]|~~'), 'contains a markdown emphasis character ({!r}); write plain text'
+                             ' (in dev text, quote identifiers such as snake_case names in backticks)'),
     (re.compile(r'\[[^\]]*\]\([^)]*\)'), 'contains a markdown link ({!r}); write plain text without links'),
     (re.compile(r'^\s*(?:#|>|[-*+•]\s|\d+[.)]\s)'), 'starts with a markdown heading, quote or list marker ({!r}); '
                                                     'the renderer lays out the title and bullets itself'),
@@ -31,7 +29,7 @@ MARKUP = [
 ]
 COMMUNITY = [
     (re.compile(r'`'), 'contains a backtick; community text must not quote code'),
-    (re.compile(r'(?:^|[\s(])(?:\.{0,2}/)?(?:[\w.-]+/)+[\w-]*\.\w+|\b[\w-]+\.(?:py|pyi|js|jsx|ts|tsx|json|ya?ml|toml|md|'
+    (re.compile(r'(?:^|[\s(])(?:\.{0,2}/)?(?:[\w.-]+/)+[\w-]*[A-Za-z][\w-]*\.[A-Za-z]\w*|\b[\w-]+\.(?:py|pyi|js|jsx|ts|tsx|json|ya?ml|toml|md|'
                 r'sql|sh|go|rs|rb|java|kt|css|html|lock|env|ini|cfg)\b|(?:^|\s)/?(?:[\w.-]+/){2,}'),
      'mentions a file path ({!r}); describe the user-facing effect instead'),
     (re.compile(r'\bv\d+(?:\.\d+)*\b|\b\d+\.\d+\.\d+\b|@\d'),
@@ -83,9 +81,6 @@ def validate(update, modes, max_bullets):
             continue
         for i, bullet in enumerate(bullets):
             errors += _field_errors(f'{mode}.bullets[{i}]', bullet, mode, BULLET_MAX)
-        texts = [entry['title'], *bullets]
-        if all(isinstance(text, str) for text in texts) and sum(map(len, texts)) > TOTAL_MAX:
-            errors.append(f'{mode}: title and bullets total more than {TOTAL_MAX} characters; shorten them')
     return errors
 
 
@@ -101,18 +96,21 @@ def load(path, modes, max_bullets):
 
 
 def main():
-    event = json.load(sys.stdin) if '--hook' in sys.argv else {}
-    if event.get('hook_event_name') == 'PreToolUse':
-        # Claude Code auto-approves read-only commands in working directories; allow only this check.
-        if event.get('tool_input', {}).get('command') != COMMAND:
-            print(json.dumps({'hookSpecificOutput': {
-                'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
-                'permissionDecisionReason': f'The only permitted shell command is: {COMMAND}'}}))
+    if '--guard' in sys.argv:
+        # PreToolUse hook: Claude Code auto-approves read-only commands in working directories.
+        try:
+            allowed = json.load(sys.stdin)['tool_input']['command'] == COMMAND
+        except Exception:
+            allowed = False
+        if not allowed:
+            print(f'The only permitted shell command is: {COMMAND}', file=sys.stderr)
+            return 2  # Exit code 2 denies the tool call.
         return 0
     path = Path(os.environ['UPDATE_FILE'])
     modes = [mode for mode in ('dev', 'community') if os.environ.get('HAS_' + mode.upper()) == 'true']
     update, errors = load(path, modes, int(os.environ['MAX_BULLETS']))
-    if event:
+    if '--hook' in sys.argv:
+        sys.stdin.read()
         attempts = path.with_name('stop-attempts')
         blocked = int(attempts.read_text()) if attempts.exists() else 0
         # Publication re-validates, so a capped run still cannot publish an invalid file.
@@ -129,8 +127,8 @@ def main():
     commits, files = os.environ.get('COMMIT_COUNT', '?'), os.environ.get('FILE_COUNT', '?')
     print('VALID - these are the exact messages that will be published:')
     for mode in modes:
-        for channel, render in RENDERERS.items():
-            print(f'\n===== {channel} ({mode}) =====\n{render(update[mode], mode, repo, commits, files)}')
+        for channel in RENDERERS:
+            print(f'\n===== {channel} ({mode}) =====\n{render(channel, update[mode], mode, repo, commits, files)}')
     return 0
 
 

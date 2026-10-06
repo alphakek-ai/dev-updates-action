@@ -93,16 +93,25 @@ def render_slack(update: dict, mode: str, repo: str, commits: str, files: str) -
     return "\n".join([f"*{line(update['title'])}*", "", *map(line, update["bullets"]), "", footer])
 
 
-def render_twitter(update: dict, mode: str, repo: str, commits: str, files: str, max_length: int = 0) -> str:
-    lines = [update["title"], "", *update["bullets"]]
-    plain = _limit_cashtags("\n".join(lines).replace("`", ""))  # X allows at most one cashtag per post
-    suffix = f"\n\n{_footer(repo, commits, files)}"
+def render_twitter(update: dict, mode: str, repo: str, commits: str, files: str) -> str:
+    lines = [update["title"], "", *update["bullets"], "", _footer(repo, commits, files)]
     if mode == "dev":
-        suffix += f"\n\nhttps://github.com/{repo}"
-    if max_length > 0 and len(plain) + len(suffix) > max_length:
-        # Crop whole bullet lines to fit, keeping footer and link intact
-        plain = plain[:max_length - len(suffix)].rsplit("\n", 1)[0]
-    return plain + suffix
+        lines += ["", f"https://github.com/{repo}"]
+    return _limit_cashtags("\n".join(lines).replace("`", ""))  # X allows at most one cashtag per post
+
+
+RENDERERS = {"telegram": render_telegram, "discord": render_discord, "slack": render_slack, "twitter": render_twitter}
+LIMITS = {"telegram": 4096, "discord": 2000, "slack": 3000}
+
+
+def render(kind: str, update: dict, mode: str, repo: str, commits: str, files: str, limit: int = 0) -> str:
+    """Render for a channel type, dropping trailing bullets until the message fits its limit."""
+    limit = limit or LIMITS.get(kind, 0)
+    for count in range(len(update["bullets"]), -1, -1):
+        text = RENDERERS[kind]({**update, "bullets": update["bullets"][:count]}, mode, repo, commits, files)
+        if not limit or len(text) <= limit:
+            break
+    return text
 
 
 def send_telegram(ch: dict, update: dict, repo: str, commits: str, files: str) -> None:
@@ -117,7 +126,7 @@ def send_telegram(ch: dict, update: dict, repo: str, commits: str, files: str) -
     payload: dict = {
         "chat_id": chat_id,
         "parse_mode": "HTML",
-        "text": render_telegram(update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files),
+        "text": render("telegram", update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files),
         "disable_web_page_preview": True,
     }
     if thread_id:
@@ -139,8 +148,8 @@ def send_discord(ch: dict, update: dict, repo: str, commits: str, files: str) ->
     if not webhook_url:
         raise DeliveryNotAttempted("No webhook URL configured")
 
-    text = render_discord(update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)
-    payload = {"content": text[:2000], "allowed_mentions": {"parse": []}}
+    text = render("discord", update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)
+    payload = {"content": text, "allowed_mentions": {"parse": []}}
 
     req = urllib.request.Request(
         webhook_url,
@@ -156,8 +165,8 @@ def send_slack(ch: dict, update: dict, repo: str, commits: str, files: str) -> N
     if not webhook_url:
         raise DeliveryNotAttempted("No webhook URL configured")
 
-    text = render_slack(update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)
-    payload = {"text": text[:3000]}
+    text = render("slack", update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)
+    payload = {"text": text}
 
     req = urllib.request.Request(
         webhook_url,
@@ -207,10 +216,8 @@ def send_twitter(ch: dict, update: dict, repo: str, commits: str, files: str) ->
         access_token_secret=access_token_secret,
     )
 
-    mode = _normalize_mode(ch.get("mode", "dev"))
     max_length = int(ch.get("max_length", "0"))  # 0 = no cropping (X Premium)
-    tweet = render_twitter(update, mode, repo, commits, files, max_length)
-    client.create_tweet(text=tweet)
+    client.create_tweet(text=render("twitter", update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files, max_length))
 
 
 DISPATCHERS = {

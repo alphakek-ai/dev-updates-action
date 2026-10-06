@@ -27,6 +27,8 @@ def test_good_update_is_valid():
     (INCIDENT, 'JSON'),
     ('["a", "b"]', 'JSON'),
     ('**Bold** news', 'markdown emphasis'),
+    ('Renamed snake_case helper', 'markdown emphasis'),
+    ('Stray * in text', 'markdown emphasis'),
     ('See [docs](https://example.com)', 'markdown link'),
     ('- Fixed retries', 'list marker'),
     ('## Update', 'heading'),
@@ -55,7 +57,8 @@ def test_community_rejects_internal_details(text, problem):
     assert any(error.startswith('community.title:') and problem in error for error in errors)
 
 
-@pytest.mark.parametrize('text', ['Sync is 2.5x faster', 'Works 24/7 and/or offline', 'Prices from $5 & up'])
+@pytest.mark.parametrize('text', ['Sync is 2.5x faster', 'Works 24/7 and/or offline', 'Prices from $5 & up',
+                                  'Loads in 1/2.5x the time'])
 def test_community_accepts_plain_language(text):
     assert errors_for('community', 'title', text) == []
 
@@ -81,10 +84,9 @@ def update_file(tmp_path, monkeypatch):
     return path
 
 
-def hook(monkeypatch, capsys, event=None):
+def hook(monkeypatch, capsys):
     monkeypatch.setattr('sys.argv', ['submit.py', '--hook'])
-    event = event or {'hook_event_name': 'Stop', 'stop_hook_active': False}
-    monkeypatch.setattr('sys.stdin', io.StringIO(json.dumps(event)))
+    monkeypatch.setattr('sys.stdin', io.StringIO('{"hook_event_name": "Stop", "stop_hook_active": false}'))
     assert submit.main() == 0
     output = capsys.readouterr().out
     return json.loads(output) if output else None
@@ -115,9 +117,16 @@ def test_check_prints_errors_or_exact_messages(update_file, monkeypatch, capsys)
     assert 'repo · 2 commit(s) · 3 file(s)' in output
 
 
-@pytest.mark.parametrize('command', ['tail diff.patch', submit.COMMAND + ' && env', 'printenv'])
-def test_bash_hook_permits_only_the_check(monkeypatch, capsys, command):
-    event = lambda command: {'hook_event_name': 'PreToolUse', 'tool_name': 'Bash', 'tool_input': {'command': command}}
-    assert hook(monkeypatch, capsys, event(submit.COMMAND)) is None
-    decision = hook(monkeypatch, capsys, event(command))['hookSpecificOutput']
-    assert decision['permissionDecision'] == 'deny' and submit.COMMAND in decision['permissionDecisionReason']
+def guard(monkeypatch, stdin):
+    monkeypatch.setattr('sys.argv', ['submit.py', '--guard'])
+    monkeypatch.setattr('sys.stdin', io.StringIO(stdin))
+    return submit.main()
+
+
+@pytest.mark.parametrize('stdin', [
+    json.dumps({'tool_input': {'command': command}}) for command in ['tail diff.patch', submit.COMMAND + ' && env']
+] + ['not json', '{}'])
+def test_bash_guard_permits_only_the_check_and_fails_closed(monkeypatch, capsys, stdin):
+    assert guard(monkeypatch, json.dumps({'tool_input': {'command': submit.COMMAND}})) == 0
+    assert guard(monkeypatch, stdin) == 2
+    assert submit.COMMAND in capsys.readouterr().err

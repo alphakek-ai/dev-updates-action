@@ -38,6 +38,11 @@ COMMUNITY = [
 ]
 
 
+def _hidden(text):
+    """First invisible format or control character; line breaks, tabs and the emoji joiner are fine."""
+    return next((char for char in text if unicodedata.category(char) in ('Cc', 'Cf') and char not in '\r\n\t\u200d'), None)
+
+
 def _inline_errors(where, tokens, kind, mode):
     errors = []
     for token in tokens:
@@ -54,9 +59,9 @@ def _inline_errors(where, tokens, kind, mode):
         errors.append(f'{where}: {message}')
     # Joined without separators so a mention or URL split across tokens is still caught.
     text = ''.join(token.content for token in tokens if token.type in ('text', 'code_inline'))
-    hidden = [char for char in text if unicodedata.category(char) in ('Cc', 'Cf') and char != '\u200d']
+    hidden = _hidden(text)
     if hidden:  # Entities such as &#8238; decode to these after the raw-source check.
-        errors.append(f'{where}: contains the invisible or control character U+{ord(hidden[0]):04X}; remove it')
+        errors.append(f'{where}: contains the invisible or control character U+{ord(hidden):04X}; remove it')
     limit = TITLE_MAX if kind == 'title' else BULLET_MAX
     if not text.strip():
         errors.append(f'{where}: is empty')
@@ -73,7 +78,8 @@ def _inline_errors(where, tokens, kind, mode):
         errors.append(f'{where}: has a literal {match.group()!r}, which some channels format; rephrase without it')
     # X renders inline code as plain text, so these two also apply to code spans.
     if re.search(r'://|\bwww\.', text):
-        errors.append(f'{where}: contains a bare URL; use a markdown link to https://github.com/ (dev) or remove it')
+        errors.append(f'{where}: contains a URL in its text (link text included); use a markdown link to '
+                      'https://github.com/ with descriptive text (dev) or remove it')
     if re.search(r'(?<![\w@])@[A-Za-z_]', text):
         errors.append(f'{where}: mentions an @account, which notifies it on Telegram; remove the mention')
     if re.search(r'\$\d', prose):
@@ -96,10 +102,9 @@ def validate_markdown(source, mode, max_bullets):
         pass
     if len(source) > SOURCE_MAX:
         return [f'{mode}.md: is {len(source)} characters; shorten it to at most {SOURCE_MAX}']
-    # Format and control characters are invisible; the zero-width joiner is kept for emoji sequences.
-    hidden = [char for char in source if unicodedata.category(char) in ('Cc', 'Cf') and char not in '\r\n\t\u200d']
+    hidden = _hidden(source)
     if hidden:
-        return [f'{mode}.md: contains the invisible or control character U+{ord(hidden[0]):04X}; remove it']
+        return [f'{mode}.md: contains the invisible or control character U+{ord(hidden):04X}; remove it']
     env = {}
     tokens = markdown_parser().parse(source, env)
     if env.get('references'):
@@ -146,6 +151,24 @@ def load(directory, modes, max_bullets):
     return update, errors or validate(update, modes, max_bullets)
 
 
+def check():
+    directory = Path(os.environ['UPDATE_DIR'])
+    modes = [mode for mode in ('dev', 'community') if os.environ.get('HAS_' + mode.upper()) == 'true']
+    return directory, modes, *load(directory, modes, int(os.environ['MAX_BULLETS']))
+
+
+def stop_hook():
+    directory, _, _, errors = check()
+    attempts = directory / 'stop-attempts'
+    blocked = int(attempts.read_text()) if attempts.exists() else 0
+    # Publication re-validates, so a capped run still cannot publish an invalid update.
+    if errors and blocked < MAX_BLOCKS:
+        attempts.write_text(str(blocked + 1))
+        reason = 'The update is not valid yet. Fix these errors, then stop:\n' + '\n'.join(errors)
+        print(json.dumps({'decision': 'block', 'reason': reason}))
+    return 0
+
+
 def main():
     if '--guard' in sys.argv:
         # PreToolUse hook: Claude Code auto-approves read-only commands in working directories.
@@ -159,25 +182,13 @@ def main():
         return 0
     if '--hook' in sys.argv:
         sys.stdin.read()
-    try:
-        directory = Path(os.environ['UPDATE_DIR'])
-        modes = [mode for mode in ('dev', 'community') if os.environ.get('HAS_' + mode.upper()) == 'true']
-        update, errors = load(directory, modes, int(os.environ['MAX_BULLETS']))
-    except Exception as error:
-        if '--hook' not in sys.argv:
-            raise
-        # A crashing Stop hook would let the agent stop without being told why.
-        print(json.dumps({'decision': 'block', 'reason': f'The update check failed: {error!r}'}))
-        return 0
-    if '--hook' in sys.argv:
-        attempts = directory / 'stop-attempts'
-        blocked = int(attempts.read_text()) if attempts.exists() else 0
-        # Publication re-validates, so a capped run still cannot publish an invalid update.
-        if errors and blocked < MAX_BLOCKS:
-            attempts.write_text(str(blocked + 1))
-            reason = 'The update is not valid yet. Fix these errors, then stop:\n' + '\n'.join(errors)
-            print(json.dumps({'decision': 'block', 'reason': reason}))
-        return 0
+        try:
+            return stop_hook()
+        except Exception as error:
+            # A crashing Stop hook would let the agent stop without being told why.
+            print(json.dumps({'decision': 'block', 'reason': f'The update check failed: {error!r}'}))
+            return 0
+    directory, modes, update, errors = check()
     if errors:
         print('INVALID - fix these errors and run this check again:')
         print('\n'.join(f'- {error}' for error in errors))

@@ -115,7 +115,7 @@ def prepare(journal, head, cooldown, now, channels):
     return {'skip': 'false', 'resume': 'false', 'before': last, 'after': head}
 
 
-def publish(journal, channels, before, after, update_file, max_bullets, repo, now, senders=DISPATCHERS):
+def publish(journal, channels, before, after, update_dir, max_bullets, repo, now, senders=DISPATCHERS):
     state = journal.load()
     fingerprint = channel_fingerprint(channels)
     batch = state['batch']
@@ -123,7 +123,7 @@ def publish(journal, channels, before, after, update_file, max_bullets, repo, no
     if not batch:
         if state['last_sha'] != before or not ancestor(before, after) or before == after:
             raise RuntimeError('Checkpoint changed after preparation; refusing stale publication')
-        summaries, errors = submit.load(update_file, modes, max_bullets)
+        summaries, errors = submit.load(update_dir, modes, max_bullets)
         if errors:
             raise ValueError('Refusing to publish an invalid update:\n' + '\n'.join(errors))
         batch = state['batch'] = {
@@ -241,7 +241,7 @@ def main():
                 output.write(f'{key}={value}\n')
         print(json.dumps(result))
     else:
-        publish(journal, channels, os.environ['BEFORE'], os.environ['AFTER'], os.environ['UPDATE_FILE'],
+        publish(journal, channels, os.environ['BEFORE'], os.environ['AFTER'], os.environ['UPDATE_DIR'],
                 int(os.environ['MAX_BULLETS']), os.environ['GITHUB_REPOSITORY'], time.time)
 
 

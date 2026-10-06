@@ -126,11 +126,13 @@ You can customize the rules:
 
 ## Generation and validation
 
-Claude Code (pinned CLI; `model` input, default `claude-opus-5`) writes `update.json`: for each active mode a plain-text `title` and 1 to `max_bullets` `bullets`. The agent can read the repository and diff, write only that file, and run only `submit.py`, which lists actionable errors or previews the exact message for every channel type. A Stop hook sends it back to fix the file while it is invalid (at most 4 times). Publication validates again and fails closed: nothing is sent, the run fails, and the journal is unchanged, so the next run retries.
+Claude Code (pinned CLI; `model` input, default `claude-opus-5`) writes one GitHub-flavoured markdown file per active mode (`dev.md`, `community.md`). The agent can read the repository and diff, write only those files, and run only `submit.py`. That script parses the markdown with markdown-it-py and either lists actionable errors or previews the exact message for every channel type. A Stop hook sends the agent back to fix the files while they are invalid (at most 4 times). Publication validates again and fails closed: nothing is sent, the run fails, and the journal is unchanged, so the next run retries.
 
-Every field must be one line without markdown, HTML or JSON; titles have at most 80 characters and bullets at most 280. Dev text may quote identifiers in backticks, rendered as code. Community text must not contain backticks, file paths or version numbers. The action does all formatting: Telegram HTML, Discord and Slack markdown with escaping, and plain text on X; trailing bullets are dropped when a message would exceed the channel's length limit. `title_style`, `dev_rules` and `community_rules` remain guidance for the agent.
+Each file must contain exactly a title (a bold line or a heading) and one bullet list of 1 to `max_bullets` single-line items. Nothing else is allowed: no other paragraphs, raw HTML, images, tables, quotes, code blocks or nested lists. The title may have at most 80 characters of text and each bullet at most 280. Dev bullets may use bold, italics, inline code and http(s) links. Community text allows only bold and italics, and must not mention file paths or version numbers. No text may be JSON or put `$` before a digit, because Telegram renders `$...$` as math.
 
-Batches journaled by earlier v3 releases hold markdown text, which the publisher refuses to send; resolve their unfinished channels (see [Reconciling uncertain delivery](#reconciling-uncertain-delivery)) before upgrading.
+Telegram receives the markdown itself through `sendRichMessage`, with the footer appended. If Telegram rejects it, that delivery fails and stays retryable; there is no plain-text fallback. Discord and Slack get the parsed tree rendered into their own markdown with escaping, and X gets plain text. When a message would exceed the channel's length limit, trailing bullets are dropped. `title_style`, `dev_rules` and `community_rules` remain guidance for the agent.
+
+A batch journaled by an earlier release is sent only if its text passes the same validation. Otherwise, resolve its unfinished channels (see [Reconciling uncertain delivery](#reconciling-uncertain-delivery)).
 
 ## Example Output
 

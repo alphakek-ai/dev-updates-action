@@ -116,9 +116,9 @@ runs:
         TITLE_STYLE: ${{ inputs.title_style }}
         MAX_BULLETS: ${{ inputs.max_bullets }}
         MODEL: ${{ inputs.model }}
-        UPDATE_FILE: ${{ runner.temp }}/dev-updates/update.json
+        UPDATE_DIR: ${{ runner.temp }}/dev-updates
         ACTION_PATH: ${{ github.action_path }}
-      run: python3 "$ACTION_PATH/summarize.py"
+      run: '"$RUNNER_TEMP/dev-updates-venv/bin/python" "$ACTION_PATH/summarize.py"'
 
     - name: Publish journaled batch
       if: steps.range.outputs.skip != 'true'
@@ -129,7 +129,7 @@ runs:
         BEFORE: ${{ steps.range.outputs.before }}
         AFTER: ${{ steps.range.outputs.after }}
         MAX_BULLETS: ${{ inputs.max_bullets }}
-        UPDATE_FILE: ${{ runner.temp }}/dev-updates/update.json
+        UPDATE_DIR: ${{ runner.temp }}/dev-updates
         ACTION_PATH: ${{ github.action_path }}
         GH_TOKEN: ${{ github.token }}
       run: '"$RUNNER_TEMP/dev-updates-venv/bin/python" "$ACTION_PATH/publication.py" publish'

@@ -13,42 +13,42 @@ from dispatch import (
     parse_channels,
 )
 
-UPDATE = {'title': 'Q&A <fixes>', 'bullets': ['🔧 `parse_channels()` keeps *quoted* <names> & ids', '🚀 Ships $AIKEK and $KEK']}
-COMMUNITY = {'title': 'Smoother chats', 'bullets': ['💬 Replies arrive [faster] & more_reliably']}
+DEV = ('**Q&A \\<fixes\\>**\n\n'
+       '- 🔧 `parse_channels()` keeps *quoted* \\<names\\> & ids ([PR](https://github.com/owner/repo/pull/1))\n'
+       '- 🚀 Ships $AIKEK and **$KEK**\n')
+COMMUNITY = '# Smoother chats\n\n- 💬 Replies arrive \\[faster\\] & more\\_reliably\n'
 
 
-@pytest.mark.parametrize('render, mode, update, expected', [
-    (dispatch.render_telegram, 'dev', UPDATE,
-     '<b>Q&amp;A &lt;fixes&gt;</b>\n\n'
-     '🔧 <code>parse_channels()</code> keeps *quoted* &lt;names&gt; &amp; ids\n🚀 Ships $AIKEK and $KEK\n\n'
-     '<a href="https://github.com/owner/repo">repo · 2 commit(s) · 3 file(s)</a>'),
-    (dispatch.render_telegram, 'community', COMMUNITY,
-     '<b>Smoother chats</b>\n\n💬 Replies arrive [faster] &amp; more_reliably\n\nrepo · 2 commit(s) · 3 file(s)'),
-    (dispatch.render_discord, 'dev', UPDATE,
+@pytest.mark.parametrize('kind, mode, markdown, expected', [
+    ('telegram', 'dev', DEV, DEV.strip() + '\n\n[repo · 2 commit(s) · 3 file(s)](https://github.com/owner/repo)'),
+    ('telegram', 'community', COMMUNITY, COMMUNITY.strip() + '\n\nrepo · 2 commit(s) · 3 file(s)'),
+    ('discord', 'dev', DEV,
      '**Q&A \\<fixes\\>**\n\n'
-     '🔧 `parse_channels()` keeps \\*quoted\\* \\<names\\> & ids\n🚀 Ships $AIKEK and $KEK\n\n'
+     '- 🔧 `parse_channels()` keeps *quoted* \\<names\\> & ids \\([PR](https://github.com/owner/repo/pull/1)\\)\n'
+     '- 🚀 Ships $AIKEK and **$KEK**\n\n'
      '[repo](https://github.com/owner/repo) · 2 commit(s) · 3 file(s)'),
-    (dispatch.render_discord, 'community', COMMUNITY,
-     '**Smoother chats**\n\n💬 Replies arrive \\[faster\\] & more\\_reliably\n\n'
+    ('discord', 'community', COMMUNITY,
+     '**Smoother chats**\n\n- 💬 Replies arrive \\[faster\\] & more\\_reliably\n\n'
      '[repo](https://github.com/owner/repo) · 2 commit(s) · 3 file(s)'),
-    (dispatch.render_slack, 'dev', UPDATE,
+    ('slack', 'dev', DEV,
      '*Q&amp;A &lt;fixes&gt;*\n\n'
-     '🔧 `parse_channels()` keeps *quoted* &lt;names&gt; &amp; ids\n🚀 Ships $AIKEK and $KEK\n\n'
+     '• 🔧 `parse_channels()` keeps _quoted_ &lt;names&gt; &amp; ids (<https://github.com/owner/repo/pull/1|PR>)\n'
+     '• 🚀 Ships $AIKEK and *$KEK*\n\n'
      '<https://github.com/owner/repo|repo> · 2 commit(s) · 3 file(s)'),
-    (dispatch.render_twitter, 'dev', UPDATE,
-     'Q&A <fixes>\n\n🔧 parse_channels() keeps *quoted* <names> & ids\n🚀 Ships $AIKEK and KEK\n\n'
-     'repo · 2 commit(s) · 3 file(s)\n\nhttps://github.com/owner/repo'),
-    (dispatch.render_twitter, 'community', COMMUNITY,
-     'Smoother chats\n\n💬 Replies arrive [faster] & more_reliably\n\nrepo · 2 commit(s) · 3 file(s)'),
+    ('twitter', 'dev', DEV,
+     'Q&A <fixes>\n\n• 🔧 parse_channels() keeps quoted <names> & ids (PR (https://github.com/owner/repo/pull/1))\n'
+     '• 🚀 Ships $AIKEK and KEK\n\nrepo · 2 commit(s) · 3 file(s)\n\nhttps://github.com/owner/repo'),
+    ('twitter', 'community', COMMUNITY,
+     'Smoother chats\n\n• 💬 Replies arrive [faster] & more_reliably\n\nrepo · 2 commit(s) · 3 file(s)'),
 ])
-def test_renderers_produce_exact_escaped_messages(render, mode, update, expected):
-    assert render(update, mode, 'owner/repo', '2', '3') == expected
+def test_channels_receive_exact_messages(kind, mode, markdown, expected):
+    assert dispatch.render(kind, markdown, mode, 'owner/repo', '2', '3') == expected
 
 
 @pytest.mark.parametrize('kind, limit', [('twitter', 60), ('discord', 0)])
 def test_long_messages_drop_trailing_bullets_and_keep_footer(kind, limit):
-    update = {'title': 'Update', 'bullets': ['one', '-' * 1000, 'three']}
-    text = dispatch.render(kind, update, 'community', 'owner/repo', '2', '3', limit)
+    markdown = '**Update**\n\n- one\n- ' + 'x' * 2000 + '\n- three\n'
+    text = dispatch.render(kind, markdown, 'community', 'owner/repo', '2', '3', limit)
     assert 'one' in text and 'three' not in text and text.endswith('3 file(s)')
 
 
@@ -73,9 +73,22 @@ def test_telegram_success_consumes_acknowledgement(monkeypatch):
     monkeypatch.setattr(dispatch.urllib.request, 'urlopen', post)
     dispatch.send_telegram({'chat_id': 'test'}, COMMUNITY, 'owner/repo', '1', '1')
     assert requests[0][0]['chat_id'] == 'test'
-    assert requests[0][0]['parse_mode'] == 'HTML'
-    assert requests[0][0]['text'] == dispatch.render('telegram', COMMUNITY, 'dev', 'owner/repo', '1', '1')
+    assert requests[0][0]['rich_message'] == {'markdown': dispatch.render('telegram', COMMUNITY, 'dev', 'owner/repo', '1', '1')}
     assert requests[0][1] == 30
+
+
+def test_telegram_rejection_fails_loudly_without_fallback(monkeypatch, capsys):
+    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+    requests = []
+    def reject(req, timeout):
+        requests.append(req.full_url)
+        raise dispatch.urllib.error.HTTPError(req.full_url, 400, 'Bad Request', {},
+                                              io.BytesIO(b'{"ok":false,"description":"RICH_MESSAGE_MARKDOWN_INVALID"}'))
+    monkeypatch.setattr(dispatch.urllib.request, 'urlopen', reject)
+    with pytest.raises(dispatch.urllib.error.HTTPError):
+        dispatch.send_telegram({'chat_id': 'test'}, COMMUNITY, 'owner/repo', '1', '1')
+    assert requests == ['https://api.telegram.org/bottest-token/sendRichMessage']
+    assert 'RICH_MESSAGE_MARKDOWN_INVALID' in capsys.readouterr().out
 
 
 class TestLimitCashtags:

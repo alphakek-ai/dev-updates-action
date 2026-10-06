@@ -1,15 +1,16 @@
-"""Render validated updates and dispatch them to configured channels.
+"""Render validated markdown updates and dispatch them to configured channels.
 
-An update is {"title": str, "bullets": [str]} of plain text (see submit.py);
-all channel formatting and escaping happens here.
+An update is a markdown title line plus one bullet list (validated by submit.py).
+Telegram receives the markdown itself; other channels get a rendering of its parse tree.
 
 Supported channel types: telegram, discord, slack, twitter.
 """
 
-import html
+import functools
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 
 # Mode aliases for backward compatibility
@@ -54,67 +55,99 @@ def parse_channels(yaml_text: str) -> list[dict]:
     return channels
 
 
-def _footer(repo: str, commits: str, files: str) -> str:
+def _stats(repo: str, commits: str, files: str) -> str:
     return f"{repo.split('/')[-1]} · {commits} commit(s) · {files} file(s)"
 
 
-def _code_spans(text: str, plain, code) -> str:
-    """Apply `plain` to text and `code` to backtick-quoted spans (dev identifiers)."""
-    parts = text.split("`")
-    return "".join(code(part) if i % 2 else plain(part) for i, part in enumerate(parts))
+@functools.cache
+def markdown_parser():
+    # Imported lazily: `publication.py prepare` runs before the locked dependencies are installed.
+    from markdown_it import MarkdownIt
+
+    return MarkdownIt("commonmark").enable(["table", "strikethrough"])  # GFM syntax parses, so it can be rejected
 
 
-def render_telegram(update: dict, mode: str, repo: str, commits: str, files: str) -> str:
-    escape = lambda text: html.escape(text, quote=False)
-    line = lambda text: _code_spans(text, escape, lambda code: f"<code>{escape(code)}</code>")
-    footer = escape(_footer(repo, commits, files))
+def outline(markdown: str) -> tuple[list, list[list]]:
+    """Inline tokens of the title and of each bullet of a validated update."""
+    inlines = [token.children for token in markdown_parser().parse(markdown) if token.type == "inline"]
+    title = [token for token in inlines[0] if token.type != "text" or token.content]
+    if title[0].type == "strong_open":  # "**Title**" paragraph; each channel applies its own bold
+        title = title[1:-1]
+    return title, inlines[1:]
+
+
+def _inline(tokens: list, text, code, strong: str, em: str, link: str) -> str:
+    out: list[str] = []
+    opened: list[tuple[int, object]] = []
+    for token in tokens:
+        if token.type == "text":
+            out.append(text(token.content))
+        elif token.type == "code_inline":
+            out.append(code(token.content))
+        elif token.nesting == 1:
+            opened.append((len(out), token))
+        elif token.nesting == -1:
+            start, opening = opened.pop()
+            inner = "".join(out[start:])
+            del out[start:]
+            fmt = {"strong_open": strong, "em_open": em, "link_open": link}[opening.type]
+            out.append(fmt.format(inner, url=opening.attrs.get("href")))
+    return "".join(out)
+
+
+def render_telegram(markdown: str, mode: str, repo: str, commits: str, files: str) -> str:
+    footer = _stats(repo, commits, files)
     if mode == "dev":
-        footer = f'<a href="https://github.com/{html.escape(repo)}">{footer}</a>'
-    return "\n".join([f"<b>{line(update['title'])}</b>", "", *map(line, update["bullets"]), "", footer])
+        footer = f"[{footer}](https://github.com/{repo})"
+    return f"{markdown.strip()}\n\n{footer}"
 
 
 def _discord_escape(text: str) -> str:
     return re.sub(r"([\\*_~`|>#\[\]()<-])", r"\\\1", text)
 
 
-def render_discord(update: dict, mode: str, repo: str, commits: str, files: str) -> str:
-    line = lambda text: _code_spans(text, _discord_escape, lambda code: f"`{code}`")
+def render_discord(title: list, bullets: list, mode: str, repo: str, commits: str, files: str) -> str:
+    line = lambda tokens: _inline(tokens, _discord_escape, lambda code: f"`{code}`", "**{}**", "*{}*", "[{}]({url})")
     footer = f"[{_discord_escape(repo.split('/')[-1])}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)"
-    return "\n".join([f"**{line(update['title'])}**", "", *map(line, update["bullets"]), "", footer])
+    return "\n".join([f"**{line(title)}**", "", *(f"- {line(b)}" for b in bullets), "", footer])
 
 
 def _slack_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def render_slack(update: dict, mode: str, repo: str, commits: str, files: str) -> str:
-    line = lambda text: _code_spans(text, _slack_escape, lambda code: f"`{_slack_escape(code)}`")
+def render_slack(title: list, bullets: list, mode: str, repo: str, commits: str, files: str) -> str:
+    line = lambda tokens: _inline(tokens, _slack_escape, lambda code: f"`{_slack_escape(code)}`", "*{}*", "_{}_", "<{url}|{}>")
     footer = f"<https://github.com/{repo}|{_slack_escape(repo.split('/')[-1])}> · {commits} commit(s) · {files} file(s)"
-    return "\n".join([f"*{line(update['title'])}*", "", *map(line, update["bullets"]), "", footer])
+    return "\n".join([f"*{line(title)}*", "", *(f"• {line(b)}" for b in bullets), "", footer])
 
 
-def render_twitter(update: dict, mode: str, repo: str, commits: str, files: str) -> str:
-    lines = [update["title"], "", *update["bullets"], "", _footer(repo, commits, files)]
+def render_twitter(title: list, bullets: list, mode: str, repo: str, commits: str, files: str) -> str:
+    line = lambda tokens: _inline(tokens, str, str, "{}", "{}", "{} ({url})")
+    lines = [line(title), "", *(f"• {line(b)}" for b in bullets), "", _stats(repo, commits, files)]
     if mode == "dev":
         lines += ["", f"https://github.com/{repo}"]
-    return _limit_cashtags("\n".join(lines).replace("`", ""))  # X allows at most one cashtag per post
+    return _limit_cashtags("\n".join(lines))  # X allows at most one cashtag per post
 
 
-RENDERERS = {"telegram": render_telegram, "discord": render_discord, "slack": render_slack, "twitter": render_twitter}
-LIMITS = {"telegram": 4096, "discord": 2000, "slack": 3000}
+RENDERERS = {"discord": render_discord, "slack": render_slack, "twitter": render_twitter}
+LIMITS = {"discord": 2000, "slack": 3000}
 
 
-def render(kind: str, update: dict, mode: str, repo: str, commits: str, files: str, limit: int = 0) -> str:
+def render(kind: str, markdown: str, mode: str, repo: str, commits: str, files: str, limit: int = 0) -> str:
     """Render for a channel type, dropping trailing bullets until the message fits its limit."""
+    if kind == "telegram":
+        return render_telegram(markdown, mode, repo, commits, files)
+    title, bullets = outline(markdown)
     limit = limit or LIMITS.get(kind, 0)
-    for count in range(len(update["bullets"]), -1, -1):
-        text = RENDERERS[kind]({**update, "bullets": update["bullets"][:count]}, mode, repo, commits, files)
+    for count in range(len(bullets), -1, -1):
+        text = RENDERERS[kind](title, bullets[:count], mode, repo, commits, files)
         if not limit or len(text) <= limit:
             break
     return text
 
 
-def send_telegram(ch: dict, update: dict, repo: str, commits: str, files: str) -> None:
+def send_telegram(ch: dict, markdown: str, repo: str, commits: str, files: str) -> None:
     chat_id = ch.get("chat_id", "")
     thread_id = ch.get("thread_id")
     bot_token_env = ch.get("bot_token_env", "TELEGRAM_BOT_TOKEN")
@@ -125,30 +158,33 @@ def send_telegram(ch: dict, update: dict, repo: str, commits: str, files: str) -
 
     payload: dict = {
         "chat_id": chat_id,
-        "parse_mode": "HTML",
-        "text": render("telegram", update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files),
-        "disable_web_page_preview": True,
+        "rich_message": {"markdown": render("telegram", markdown, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)},
     }
     if thread_id:
         payload["message_thread_id"] = int(thread_id)
 
     req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
+        f"https://api.telegram.org/bot{token}/sendRichMessage",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=30) as response:
-        result = json.load(response)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.load(response)
+    except urllib.error.HTTPError as error:
+        # No plain-text fallback: a rejected update fails this delivery and stays retryable.
+        print(f"::error::Telegram rejected the rich message: {error.read().decode(errors='replace')}")
+        raise
     if not result.get('ok') or not result.get('result', {}).get('message_id'):
         raise RuntimeError('Telegram did not confirm a message ID')
 
 
-def send_discord(ch: dict, update: dict, repo: str, commits: str, files: str) -> None:
+def send_discord(ch: dict, markdown: str, repo: str, commits: str, files: str) -> None:
     webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
     if not webhook_url:
         raise DeliveryNotAttempted("No webhook URL configured")
 
-    text = render("discord", update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)
+    text = render("discord", markdown, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)
     payload = {"content": text, "allowed_mentions": {"parse": []}}
 
     req = urllib.request.Request(
@@ -160,12 +196,12 @@ def send_discord(ch: dict, update: dict, repo: str, commits: str, files: str) ->
         pass
 
 
-def send_slack(ch: dict, update: dict, repo: str, commits: str, files: str) -> None:
+def send_slack(ch: dict, markdown: str, repo: str, commits: str, files: str) -> None:
     webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
     if not webhook_url:
         raise DeliveryNotAttempted("No webhook URL configured")
 
-    text = render("slack", update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)
+    text = render("slack", markdown, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)
     payload = {"text": text}
 
     req = urllib.request.Request(
@@ -193,7 +229,7 @@ def _limit_cashtags(text: str) -> str:
     return re.sub(r"(?<!\w)\$[A-Za-z][A-Za-z0-9]*", demote_extra, text)
 
 
-def send_twitter(ch: dict, update: dict, repo: str, commits: str, files: str) -> None:
+def send_twitter(ch: dict, markdown: str, repo: str, commits: str, files: str) -> None:
     """Post tweet using OAuth 1.0a (static keys, no token rotation)."""
     import tweepy
 
@@ -217,7 +253,7 @@ def send_twitter(ch: dict, update: dict, repo: str, commits: str, files: str) ->
     )
 
     max_length = int(ch.get("max_length", "0"))  # 0 = no cropping (X Premium)
-    client.create_tweet(text=render("twitter", update, _normalize_mode(ch.get("mode", "dev")), repo, commits, files, max_length))
+    client.create_tweet(text=render("twitter", markdown, _normalize_mode(ch.get("mode", "dev")), repo, commits, files, max_length))
 
 
 DISPATCHERS = {

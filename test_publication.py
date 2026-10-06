@@ -1,4 +1,3 @@
-import json
 import subprocess
 import os
 from pathlib import Path
@@ -16,9 +15,9 @@ PUBLICATION_SCRIPT = Path(__file__).with_name('publication.py').resolve()
 
 CHANNELS = [{'name': 'team', 'type': 'telegram', 'mode': 'dev'},
             {'name': 'public', 'type': 'telegram', 'mode': 'community'}]
-SUMMARIES = {'dev': {'title': 'Technical update', 'bullets': ['🔧 `publish` journals first']},
-             'community': {'title': 'Public update', 'bullets': ['📣 No duplicate posts']}}
-UPDATE_FILE = '../update.json'  # Beside the work tree, as the action keeps it in RUNNER_TEMP.
+SUMMARIES = {'dev': '**Technical update**\n\n- 🔧 `publish` journals first\n',
+             'community': '**Public update**\n\n- 📣 No duplicate posts\n'}
+UPDATE_DIR = '..'  # Beside the work tree, as the action keeps it in RUNNER_TEMP.
 
 
 @pytest.fixture
@@ -39,12 +38,13 @@ def history(tmp_path, monkeypatch):
     journal = Journal('refs/dev-updates/test')
     journal.state = {'version': 1, 'last_sha': commits[0], 'last_at': 100, 'batch': None}
     journal.save()
-    (tmp_path / 'update.json').write_text(json.dumps(SUMMARIES))
+    for mode, markdown in SUMMARIES.items():
+        (tmp_path / f'{mode}.md').write_text(markdown)
     return journal, commits
 
 
 def deliver(journal, commits, sender):
-    return publish(journal, CHANNELS, commits[0], commits[1], UPDATE_FILE, 5,
+    return publish(journal, CHANNELS, commits[0], commits[1], UPDATE_DIR, 5,
                    'owner/repo', lambda: 200, {'telegram': sender})
 
 
@@ -59,7 +59,10 @@ def deliver(journal, commits, sender):
 def test_prepare_cli_modes_match_publication(history, tmp_path, config, expected):
     journal, commits = history
     output = tmp_path / 'github-output'
-    subprocess.run([sys.executable, str(PUBLICATION_SCRIPT), 'prepare'], check=True,
+    # Preparation runs before the locked dependencies are installed.
+    without_dependencies = (f"import runpy, sys; sys.modules['markdown_it'] = None; sys.path.insert(0, {str(PUBLICATION_SCRIPT.parent)!r}); "
+                            f"sys.argv = ['publication.py', 'prepare']; runpy.run_path({str(PUBLICATION_SCRIPT)!r}, run_name='__main__')")
+    subprocess.run([sys.executable, '-c', without_dependencies], check=True,
                    capture_output=True, text=True,
                    env={**os.environ, 'CHANNELS': config, 'COOLDOWN': '',
                         'STATE_REF': 'refs/dev-updates/test', 'GITHUB_OUTPUT': str(output)})
@@ -67,10 +70,9 @@ def test_prepare_cli_modes_match_publication(history, tmp_path, config, expected
     detected = {mode for mode in ('dev', 'community') if values[f'has_{mode}'] == 'true'}
     assert detected == expected
     calls = []
-    (tmp_path / 'update.json').write_text(json.dumps({mode: SUMMARIES[mode] for mode in detected}))
-    publish(journal, parse_channels(config), values['before'], values['after'], UPDATE_FILE, 5,
-            'owner/repo', lambda: 200, {'telegram': lambda ch, content, *args: calls.append(content['title'])})
-    assert set(calls) == {SUMMARIES[mode]['title'] for mode in expected}
+    publish(journal, parse_channels(config), values['before'], values['after'], UPDATE_DIR, 5,
+            'owner/repo', lambda: 200, {'telegram': lambda ch, content, *args: calls.append(content)})
+    assert set(calls) == {SUMMARIES[mode] for mode in expected}
     assert journal.load()['last_sha'] == commits[-1]
 
 
@@ -235,13 +237,13 @@ def test_batch_retains_original_text_when_generation_changes(history):
 
 @pytest.mark.parametrize('content', [
     # 2026-10-06: the model's JSON reached every channel as message text.
-    json.dumps({**SUMMARIES, 'community': {'title': '{"title":"**Update**","bullets":["x"]}', 'bullets': ['x']}}),
-    json.dumps({'dev': '**Update**', 'community': 'Update'}),
-    '{"dev": ',
+    '{"title":"**Dev update**","bullets":["🔁 Retries"]}',
+    '**Update**\n\nNo list here.',
+    '**Update**\n\n- <b>raw HTML</b>',
 ])
 def test_invalid_update_publishes_nothing_and_keeps_journal(history, tmp_path, content):
     journal, commits = history
-    (tmp_path / 'update.json').write_text(content)
+    (tmp_path / 'community.md').write_text(content)
     revision = journal.revision
     with pytest.raises(ValueError, match='invalid update'):
         deliver(journal, commits, lambda *args: pytest.fail('Invalid update sent'))
@@ -249,16 +251,16 @@ def test_invalid_update_publishes_nothing_and_keeps_journal(history, tmp_path, c
     assert journal.revision == revision
 
 
-def test_frozen_markdown_batch_is_not_sent(history):
+def test_frozen_batch_in_another_format_is_not_sent(history):
     journal, commits = history
     def reject(ch, *args):
         raise urllib.error.HTTPError('redacted', 429, '', {}, None)
     with pytest.raises(RuntimeError):
         deliver(journal, commits, reject)
-    journal.state['batch']['summaries'] = {'dev': '**Technical update**', 'community': 'Public update'}
+    journal.state['batch']['summaries'] = {'dev': {'title': 'Update', 'bullets': ['x']}, 'community': 'Update'}
     journal.save()
     with pytest.raises(ValueError, match='invalid update'):
-        deliver(journal, commits, lambda *args: pytest.fail('Frozen markdown sent'))
+        deliver(journal, commits, lambda *args: pytest.fail('Frozen batch sent'))
 
 
 def test_optional_definitive_rejection_does_not_block_completed_batch(history):
@@ -267,7 +269,7 @@ def test_optional_definitive_rejection_does_not_block_completed_batch(history):
     def sender(ch, *args):
         if ch['name'] == 'public':
             raise urllib.error.HTTPError('redacted', 403, '', {}, None)
-    publish(journal, channels, commits[0], commits[1], UPDATE_FILE, 5, 'owner/repo', lambda: 201,
+    publish(journal, channels, commits[0], commits[1], UPDATE_DIR, 5, 'owner/repo', lambda: 201,
             {'telegram': sender})
     assert journal.load()['last_sha'] == commits[1]
 
@@ -332,11 +334,11 @@ def test_optional_outage_cannot_block_next_required_publication(history, error):
         calls.append(ch['name'])
         if ch['name'] == 'public':
             raise error
-    publish(journal, channels, commits[0], commits[1], UPDATE_FILE, 5, 'owner/repo', lambda: 201,
+    publish(journal, channels, commits[0], commits[1], UPDATE_DIR, 5, 'owner/repo', lambda: 201,
             {'telegram': sender})
     result = prepare(journal, commits[2], '', 202, channels)
     assert result['before'] == commits[1]
-    publish(journal, channels, commits[1], commits[2], UPDATE_FILE, 5, 'owner/repo', lambda: 202,
+    publish(journal, channels, commits[1], commits[2], UPDATE_DIR, 5, 'owner/repo', lambda: 202,
             {'telegram': sender})
     assert calls == ['team', 'public', 'team', 'public']
     assert journal.load()['last_sha'] == commits[2]
@@ -349,7 +351,7 @@ def test_optional_pending_after_crash_is_abandoned_not_resent(history):
         if ch['name'] == 'public':
             raise SystemExit('Process killed before acknowledgement')
     with pytest.raises(SystemExit):
-        publish(journal, channels, commits[0], commits[1], UPDATE_FILE, 5, 'owner/repo', lambda: 201,
+        publish(journal, channels, commits[0], commits[1], UPDATE_DIR, 5, 'owner/repo', lambda: 201,
                 {'telegram': crash})
     publish(journal, channels, commits[0], commits[1], 'missing.json', 5, 'owner/repo', lambda: 202,
             {'telegram': lambda *args: pytest.fail('Must not resend')})
@@ -383,7 +385,7 @@ def test_all_optional_uncertain_deliveries_are_never_replayed(history):
         calls.append(ch['name'])
         raise TimeoutError('Accepted remotely but acknowledgement lost')
     with pytest.raises(RuntimeError, match='No confirmed deliveries'):
-        publish(journal, channels, commits[0], commits[1], UPDATE_FILE, 5, 'owner/repo', lambda: 201,
+        publish(journal, channels, commits[0], commits[1], UPDATE_DIR, 5, 'owner/repo', lambda: 201,
                 {'telegram': timeout})
     assert prepare(journal, commits[1], '', 202, channels) == {'skip': 'true'}
     assert prepare(journal, commits[2], '', 202, channels)['before'] == commits[1]

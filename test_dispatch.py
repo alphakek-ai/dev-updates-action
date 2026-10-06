@@ -1,6 +1,5 @@
-"""Tests for dispatch.py — channel parsing, summary loading."""
+"""Tests for dispatch.py — channel parsing and rendering."""
 
-import os
 import io
 import json
 
@@ -11,9 +10,45 @@ from dispatch import (
     _is_required,
     _limit_cashtags,
     _normalize_mode,
-    load_summary,
     parse_channels,
 )
+
+UPDATE = {'title': 'Q&A <fixes>', 'bullets': ['🔧 `parse_channels()` keeps *quoted* <names> & ids', '🚀 Ships $AIKEK and $KEK']}
+COMMUNITY = {'title': 'Smoother chats', 'bullets': ['💬 Replies arrive [faster] & more_reliably']}
+
+
+@pytest.mark.parametrize('render, mode, update, expected', [
+    (dispatch.render_telegram, 'dev', UPDATE,
+     '<b>Q&amp;A &lt;fixes&gt;</b>\n\n'
+     '🔧 <code>parse_channels()</code> keeps *quoted* &lt;names&gt; &amp; ids\n🚀 Ships $AIKEK and $KEK\n\n'
+     '<a href="https://github.com/owner/repo">repo · 2 commit(s) · 3 file(s)</a>'),
+    (dispatch.render_telegram, 'community', COMMUNITY,
+     '<b>Smoother chats</b>\n\n💬 Replies arrive [faster] &amp; more_reliably\n\nrepo · 2 commit(s) · 3 file(s)'),
+    (dispatch.render_discord, 'dev', UPDATE,
+     '**Q&A \\<fixes\\>**\n\n'
+     '🔧 `parse_channels()` keeps \\*quoted\\* \\<names\\> & ids\n🚀 Ships $AIKEK and $KEK\n\n'
+     '[repo](https://github.com/owner/repo) · 2 commit(s) · 3 file(s)'),
+    (dispatch.render_discord, 'community', COMMUNITY,
+     '**Smoother chats**\n\n💬 Replies arrive \\[faster\\] & more\\_reliably\n\n'
+     '[repo](https://github.com/owner/repo) · 2 commit(s) · 3 file(s)'),
+    (dispatch.render_slack, 'dev', UPDATE,
+     '*Q&amp;A &lt;fixes&gt;*\n\n'
+     '🔧 `parse_channels()` keeps *quoted* &lt;names&gt; &amp; ids\n🚀 Ships $AIKEK and $KEK\n\n'
+     '<https://github.com/owner/repo|repo> · 2 commit(s) · 3 file(s)'),
+    (dispatch.render_twitter, 'dev', UPDATE,
+     'Q&A <fixes>\n\n🔧 parse_channels() keeps *quoted* <names> & ids\n🚀 Ships $AIKEK and KEK\n\n'
+     'repo · 2 commit(s) · 3 file(s)\n\nhttps://github.com/owner/repo'),
+    (dispatch.render_twitter, 'community', COMMUNITY,
+     'Smoother chats\n\n💬 Replies arrive [faster] & more_reliably\n\nrepo · 2 commit(s) · 3 file(s)'),
+])
+def test_renderers_produce_exact_escaped_messages(render, mode, update, expected):
+    assert render(update, mode, 'owner/repo', '2', '3') == expected
+
+
+def test_twitter_crops_whole_bullets_and_keeps_footer():
+    update = {'title': 'Update', 'bullets': ['one', 'two ' * 30]}
+    tweet = dispatch.render_twitter(update, 'community', 'owner/repo', '2', '3', max_length=60)
+    assert tweet == 'Update\n\none\n\nrepo · 2 commit(s) · 3 file(s)'
 
 
 @pytest.mark.parametrize('body', [
@@ -25,7 +60,7 @@ def test_telegram_requires_confirmed_message_id(monkeypatch, body):
     monkeypatch.setattr(dispatch.urllib.request, 'urlopen',
                         lambda req, timeout: io.BytesIO(json.dumps(body).encode()))
     with pytest.raises(RuntimeError, match='confirm'):
-        dispatch.send_telegram({'chat_id': 'test'}, 'Update', 'owner/repo', 'repo', '1', '1')
+        dispatch.send_telegram({'chat_id': 'test'}, COMMUNITY, 'owner/repo', '1', '1')
 
 
 def test_telegram_success_consumes_acknowledgement(monkeypatch):
@@ -35,8 +70,10 @@ def test_telegram_success_consumes_acknowledgement(monkeypatch):
         requests.append((json.loads(req.data), timeout))
         return io.BytesIO(b'{"ok":true,"result":{"message_id":123}}')
     monkeypatch.setattr(dispatch.urllib.request, 'urlopen', post)
-    dispatch.send_telegram({'chat_id': 'test'}, 'Update', 'owner/repo', 'repo', '1', '1')
+    dispatch.send_telegram({'chat_id': 'test'}, COMMUNITY, 'owner/repo', '1', '1')
     assert requests[0][0]['chat_id'] == 'test'
+    assert requests[0][0]['parse_mode'] == 'HTML'
+    assert requests[0][0]['text'] == dispatch.render_telegram(COMMUNITY, 'dev', 'owner/repo', '1', '1')
     assert requests[0][1] == 30
 
 
@@ -188,26 +225,3 @@ class TestIsRequired:
         # If parse_channels is ever swapped for real YAML, native bools must work.
         assert _is_required({"required": True}) is True
         assert _is_required({"required": False}) is False
-
-
-class TestLoadSummary:
-    def test_returns_empty_for_missing_file(self):
-        assert load_summary("nonexistent_mode_xyz") == ""
-
-    def test_loads_content(self):
-        with open("/tmp/summary_testmode.md", "w") as f:
-            f.write("📦 **My Update**\n\n🔧 Fixed a bug\n🚀 Added a feature")
-
-        content = load_summary("testmode")
-        assert "My Update" in content
-        assert "Fixed a bug" in content
-        assert "Added a feature" in content
-        os.unlink("/tmp/summary_testmode.md")
-
-    def test_strips_whitespace(self):
-        with open("/tmp/summary_striptest.md", "w") as f:
-            f.write("  \n  content here  \n  ")
-
-        content = load_summary("striptest")
-        assert content == "content here"
-        os.unlink("/tmp/summary_striptest.md")

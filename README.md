@@ -124,6 +124,14 @@ You can customize the rules:
       ...
 ```
 
+## Generation and validation
+
+Claude Code (pinned CLI; `model` input, default `claude-opus-5`) writes `update.json`: for each active mode a plain-text `title` and 1 to `max_bullets` `bullets`. The agent can read the repository and diff, write only that file, and run only `submit.py`, which lists actionable errors or previews the exact message for every channel type. A Stop hook sends it back to fix the file while it is invalid (at most 4 times). Publication validates again and fails closed: nothing is sent, the run fails, and the journal is unchanged, so the next run retries.
+
+Every field must be one line without markdown, HTML or JSON; titles have at most 80 characters and bullets at most 280. Dev text may quote identifiers in backticks, rendered as code. Community text must not contain backticks, file paths or version numbers. The action does all formatting: Telegram HTML, Discord and Slack markdown with escaping, and plain text on X. `title_style`, `dev_rules` and `community_rules` remain guidance for the agent.
+
+Batches journaled by earlier v3 releases hold markdown text, which the publisher refuses to send; resolve their unfinished channels (see [Reconciling uncertain delivery](#reconciling-uncertain-delivery)) before upgrading.
+
 ## Example Output
 
 **Private** (team chat):
@@ -253,7 +261,7 @@ Supported cooldown formats: `30m`, `6h`, `1d`, or raw seconds.
 - `contents: write` permission for journal writes, an initialized state ref, and `fetch-depth: 0`
 - `persist-credentials: false` on checkout; only preparation and publication receive the Git token
 
-Summary generation uses read-only model tools in Claude Code safe mode; trusted code captures the returned JSON and writes the summaries. Delivery dependencies are version- and hash-locked in `requirements.txt`.
+Summary generation ignores repository and user Claude Code settings, has no MCP servers or network tools, and receives no Git or channel credentials. Delivery dependencies are version- and hash-locked in `requirements.txt`.
 
 ## License
 

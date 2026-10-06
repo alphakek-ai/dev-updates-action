@@ -9,7 +9,8 @@ import re
 import subprocess
 import time
 
-from dispatch import DISPATCHERS, DeliveryNotAttempted, _is_required, _normalize_mode, load_summary, parse_channels
+from dispatch import DISPATCHERS, DeliveryNotAttempted, _is_required, _normalize_mode, parse_channels
+import submit
 
 
 def git(*args, input=None):
@@ -113,16 +114,17 @@ def prepare(journal, head, cooldown, now, channels):
     return {'skip': 'false', 'resume': 'false', 'before': last, 'after': head}
 
 
-def publish(journal, channels, before, after, summaries, repo, now, senders=DISPATCHERS):
+def publish(journal, channels, before, after, update_file, max_bullets, repo, now, senders=DISPATCHERS):
     state = journal.load()
     fingerprint = channel_fingerprint(channels)
     batch = state['batch']
+    modes = sorted({_normalize_mode(ch.get('mode', 'dev')) for ch in channels})
     if not batch:
         if state['last_sha'] != before or not ancestor(before, after) or before == after:
             raise RuntimeError('Checkpoint changed after preparation; refusing stale publication')
-        modes = {_normalize_mode(ch.get('mode', 'dev')) for ch in channels}
-        if any(not summaries.get(mode) for mode in modes):
-            raise ValueError('Missing generated summary')
+        summaries, errors = submit.load(update_file, modes, max_bullets)
+        if errors:
+            raise ValueError('Refusing to publish an invalid update:\n' + '\n'.join(errors))
         batch = state['batch'] = {
             'before': before, 'after': after, 'channels': fingerprint,
             'summaries': summaries, 'deliveries': {ch['name']: 'ready' for ch in channels},
@@ -132,6 +134,10 @@ def publish(journal, channels, before, after, summaries, repo, now, senders=DISP
         journal.save()
     if (batch['before'], batch['after'], batch['channels']) != (before, after, fingerprint):
         raise RuntimeError('Outstanding publication does not match prepared range/channels')
+    errors = submit.validate(batch['summaries'], modes, max_bullets)
+    if errors and 'ready' in batch['deliveries'].values():
+        raise ValueError('Outstanding batch holds an invalid update; abandon its channels with resolve:\n'
+                         + '\n'.join(errors))
     for ch in channels:
         name = ch['name']
         status = batch['deliveries'][name]
@@ -152,7 +158,7 @@ def publish(journal, channels, before, after, summaries, repo, now, senders=DISP
         batch['deliveries'][name] = 'pending'
         journal.save()  # Must succeed before any external delivery.
         try:
-            sender(ch, content, repo, repo.split('/')[-1], batch['commits'], batch['files'])
+            sender(ch, content, repo, batch['commits'], batch['files'])
         except Exception as error:
             # Only definitive rejection permits a retry. Timeouts/5xx may follow
             # successful delivery; leave the durable pending marker untouched.
@@ -233,9 +239,8 @@ def main():
                 output.write(f'{key}={value}\n')
         print(json.dumps(result))
     else:
-        publish(journal, channels, os.environ['BEFORE'], os.environ['AFTER'],
-                {mode: load_summary(mode) for mode in ('dev', 'community')},
-                os.environ['GITHUB_REPOSITORY'], time.time)
+        publish(journal, channels, os.environ['BEFORE'], os.environ['AFTER'], os.environ['UPDATE_FILE'],
+                int(os.environ['MAX_BULLETS']), os.environ['GITHUB_REPOSITORY'], time.time)
 
 
 if __name__ == '__main__':

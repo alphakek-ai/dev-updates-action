@@ -58,6 +58,10 @@ inputs:
     description: 'Maximum number of bullet points per summary'
     required: false
     default: '5'
+  model:
+    description: 'Claude model that writes the summaries (passed to Claude Code --model)'
+    required: false
+    default: 'claude-opus-5'
 
 runs:
   using: 'composite'
@@ -111,6 +115,8 @@ runs:
         COMMUNITY_RULES: ${{ inputs.community_rules }}
         TITLE_STYLE: ${{ inputs.title_style }}
         MAX_BULLETS: ${{ inputs.max_bullets }}
+        MODEL: ${{ inputs.model }}
+        UPDATE_FILE: ${{ runner.temp }}/dev-updates/update.json
         ACTION_PATH: ${{ github.action_path }}
       run: python3 "$ACTION_PATH/summarize.py"
 
@@ -122,6 +128,8 @@ runs:
         STATE_REF: ${{ inputs.state_ref }}
         BEFORE: ${{ steps.range.outputs.before }}
         AFTER: ${{ steps.range.outputs.after }}
+        MAX_BULLETS: ${{ inputs.max_bullets }}
+        UPDATE_FILE: ${{ runner.temp }}/dev-updates/update.json
         ACTION_PATH: ${{ github.action_path }}
         GH_TOKEN: ${{ github.token }}
       run: '"$RUNNER_TEMP/dev-updates-venv/bin/python" "$ACTION_PATH/publication.py" publish'

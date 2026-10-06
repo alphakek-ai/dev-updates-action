@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shlex
 import sys
+import unicodedata
 
 from dispatch import RENDERERS, markdown_parser, render
 
@@ -44,6 +45,8 @@ def _inline_errors(where, tokens, kind, mode):
             # The diff is untrusted input; links may not lead readers off GitHub.
             if token.type == 'link_open' and not str(token.attrs.get('href', '')).startswith('https://github.com/'):
                 errors.append(f'{where}: links must point to https://github.com/; remove other links')
+            if token.type == 'link_open' and token.attrs.get('title'):
+                errors.append(f'{where}: has a link title ("..." after the URL); remove it')
             if token.type == 'code_inline' and '`' in token.content:
                 errors.append(f'{where}: has a backtick inside inline code; remove it')
             continue
@@ -89,9 +92,10 @@ def validate_markdown(source, mode, max_bullets):
         pass
     if len(source) > SOURCE_MAX:
         return [f'{mode}.md: is {len(source)} characters; shorten it to at most {SOURCE_MAX}']
-    hidden = re.search(r'[\x00-\x08\x0b-\x1f\x7f\u200b\u200c\u200e\u200f\u202a-\u202e\u2066-\u2069]', source)
+    # Format and control characters are invisible; the zero-width joiner is kept for emoji sequences.
+    hidden = [char for char in source if unicodedata.category(char) in ('Cc', 'Cf') and char not in '\n\t\u200d']
     if hidden:
-        return [f'{mode}.md: contains the invisible or control character U+{ord(hidden.group()):04X}; remove it']
+        return [f'{mode}.md: contains the invisible or control character U+{ord(hidden[0]):04X}; remove it']
     env = {}
     tokens = markdown_parser().parse(source, env)
     if env.get('references'):
@@ -133,6 +137,8 @@ def load(directory, modes, max_bullets):
             update[mode] = (Path(directory) / f'{mode}.md').read_text()
         except FileNotFoundError:
             errors.append(f'{Path(directory) / f"{mode}.md"}: does not exist; write it with the Write tool')
+        except UnicodeDecodeError:
+            errors.append(f'{Path(directory) / f"{mode}.md"}: is not valid UTF-8; rewrite it')
     return update, errors or validate(update, modes, max_bullets)
 
 

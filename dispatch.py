@@ -70,6 +70,7 @@ def markdown_parser():
 def outline(markdown: str) -> tuple[list, list[list]]:
     """Inline tokens of the title and of each bullet of a validated update."""
     inlines = [token.children for token in markdown_parser().parse(markdown) if token.type == "inline"]
+    assert len(inlines) >= 2, "outline() needs an update that passed submit.validate()"
     title = [token for token in inlines[0] if token.type != "text" or token.content]
     if title[0].type == "strong_open":  # "**Title**" paragraph; each channel applies its own bold
         title = title[1:-1]

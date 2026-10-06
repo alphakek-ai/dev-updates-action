@@ -38,6 +38,7 @@ def test_good_update_is_valid():
     ('**Update**\n\n- item ' + 'x' * 32000, 'shorten it to at most 32000'),
     ('[x]: https://evil.example\n\n**Update**\n\n- item', 'link reference definition'),
     ('**Update**\n\n- item \u202e reversed', 'U+202E'),
+    ('**Update**\n\n- soft\u00adhyphen', 'U+00AD'),
 ])
 def test_structure_errors_are_specific(markdown, problem):
     errors = submit.validate({**GOOD, 'dev': markdown}, MODES, 5)
@@ -51,6 +52,7 @@ def test_structure_errors_are_specific(markdown, problem):
     ('~~gone~~', 'strikethrough'),
     ('[docs](ftp://example.com)', 'https://github.com/'),
     ('[docs](https://evil.example/login)', 'https://github.com/'),
+    ('[docs](https://github.com/o/r "hidden")', 'link title'),
     ('x' * 281, 'at most 280'),
     ('Fees from $5 and up', 'math'),
     ('see https://evil.example/x', 'bare URL'),

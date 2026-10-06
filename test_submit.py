@@ -40,6 +40,7 @@ def test_good_update_is_valid():
     ('[x]: https://evil.example\n\n**Update**\n\n- item', 'link reference definition'),
     ('**Update**\n\n- item \u202e reversed', 'U+202E'),
     ('**Update**\n\n- soft\u00adhyphen', 'U+00AD'),
+    ('**Update**\n\n- blank\u3164filler', 'U+3164'),
     ('**Update**\n\n- thanks @&#8203;someone', 'U+200B'),
 ])
 def test_structure_errors_are_specific(markdown, problem):

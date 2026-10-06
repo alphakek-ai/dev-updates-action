@@ -39,8 +39,9 @@ COMMUNITY = [
 
 
 def _hidden(text):
-    """First invisible format or control character; line breaks, tabs and the emoji joiner are fine."""
-    return next((char for char in text if unicodedata.category(char) in ('Cc', 'Cf') and char not in '\r\n\t\u200d'), None)
+    """First invisible character; line breaks, tabs and the emoji joiner are fine."""
+    return next((char for char in text if char in '\u115f\u1160\u3164\u2800'  # Blank letters and braille blank.
+                 or unicodedata.category(char) in ('Cc', 'Cf') and char not in '\r\n\t\u200d'), None)
 
 
 def _inline_errors(where, tokens, kind, mode):

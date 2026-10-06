@@ -98,7 +98,8 @@ def _inline(tokens: list, text, code, strong: str, em: str, link: str) -> str:
 
 
 def render_telegram(markdown: str, mode: str, repo: str, commits: str, files: str) -> str:
-    footer = _stats(repo, commits, files)
+    name = re.sub(r"([!-/:-@\[-`{-~])", r"\\\1", repo.split("/")[-1])  # Keep the repo name literal markdown text.
+    footer = f"{name} · {commits} commit(s) · {files} file(s)"
     if mode == "dev":
         footer = f"[{footer}](https://github.com/{repo})"
     return f"{markdown.strip()}\n\n{footer}"

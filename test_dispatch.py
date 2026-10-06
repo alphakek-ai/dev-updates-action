@@ -45,6 +45,12 @@ def test_channels_receive_exact_messages(kind, mode, markdown, expected):
     assert dispatch.render(kind, markdown, mode, 'owner/repo', '2', '3') == expected
 
 
+def test_telegram_footer_keeps_repo_name_literal():
+    text = dispatch.render('telegram', COMMUNITY, 'community', 'owner/_my-repo_', '2', '3')
+    footer = dispatch.markdown_parser().parse(text)[-2].children
+    assert [(token.type, token.content) for token in footer] == [('text', '_my-repo_ · 2 commit(s) · 3 file(s)')]
+
+
 @pytest.mark.parametrize('kind, limit', [('twitter', 60), ('discord', 0)])
 def test_long_messages_drop_trailing_bullets_and_keep_footer(kind, limit):
     markdown = '**Update**\n\n- one\n- ' + 'x' * 2000 + '\n- three\n'

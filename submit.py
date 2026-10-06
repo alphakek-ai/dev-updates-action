@@ -40,7 +40,7 @@ COMMUNITY = [
 
 def _hidden(text):
     """First invisible character; line breaks, tabs and the emoji joiner are fine."""
-    return next((char for char in text if char in '\u115f\u1160\u3164\u2800'  # Blank letters and braille blank.
+    return next((char for char in text if char in '\u115f\u1160\u3164\u2800\u2028\u2029'  # Blank letters, braille blank, separators.
                  or unicodedata.category(char) in ('Cc', 'Cf') and char not in '\r\n\t\u200d'), None)
 
 
@@ -147,8 +147,8 @@ def load(directory, modes, max_bullets):
             update[mode] = (Path(directory) / f'{mode}.md').read_text()
         except FileNotFoundError:
             errors.append(f'{Path(directory) / f"{mode}.md"}: does not exist; write it with the Write tool')
-        except UnicodeDecodeError:
-            errors.append(f'{Path(directory) / f"{mode}.md"}: is not valid UTF-8; rewrite it')
+        except (OSError, UnicodeDecodeError) as error:
+            errors.append(f'{Path(directory) / f"{mode}.md"}: cannot be read ({error}); rewrite it')
     return update, errors or validate(update, modes, max_bullets)
 
 

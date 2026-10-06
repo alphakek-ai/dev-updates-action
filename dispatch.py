@@ -179,7 +179,11 @@ def send_telegram(ch: dict, markdown: str, repo: str, commits: str, files: str) 
             result = json.load(response)
     except urllib.error.HTTPError as error:
         # No plain-text fallback: a rejected update fails this delivery and stays retryable.
-        print(f"::error::Telegram rejected the rich message: {error.read().decode(errors='replace')}")
+        try:
+            description = json.loads(error.read())["description"]
+        except Exception:
+            description = ""  # Never mask the HTTP error, which decides whether the delivery is retryable.
+        print(f"::error::Telegram rejected the rich message ({error.code}): {description!r}")
         raise
     if not result.get('ok') or not result.get('result', {}).get('message_id'):
         raise RuntimeError('Telegram did not confirm a message ID')

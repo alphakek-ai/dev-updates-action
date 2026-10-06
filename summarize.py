@@ -84,7 +84,7 @@ def generate():
     update, errors = submit.load(workdir, modes, int(os.environ['MAX_BULLETS']))
     if errors:
         raise ValueError('Generated update is invalid:\n' + '\n'.join(errors))
-    text = json.dumps(update)
+    text = '\n'.join(update.values())
     token = os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')
     if (token and token in text) or re.search(r'sk-ant-[A-Za-z0-9_-]{20,}', text):
         for path in files_out:

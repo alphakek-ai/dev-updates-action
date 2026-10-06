@@ -61,8 +61,9 @@ def _inline_errors(where, tokens, kind, mode):
     except ValueError:
         pass
     prose = ' '.join(token.content for token in tokens if token.type == 'text')
-    if re.search(r'[*_~]', prose):
-        errors.append(f'{where}: has a literal "*", "_" or "~", which some channels format; rephrase without it')
+    match = re.search(r'[*_~`]|\|\||==', prose)
+    if match:
+        errors.append(f'{where}: has a literal {match.group()!r}, which some channels format; rephrase without it')
     if re.search(r'://|\bwww\.', prose):
         errors.append(f'{where}: contains a bare URL; use a markdown link to https://github.com/ (dev) or remove it')
     if re.search(r'(?<![\w@])@[A-Za-z_]', prose):

@@ -54,8 +54,10 @@ def test_structure_errors_are_specific(markdown, problem):
     ('see https://evil.example/x', 'bare URL'),
     ('see www.evil.example', 'bare URL'),
     ('thanks @someone', '@account'),
-    ('5 \\* 3 and snake\\_case', 'literal "*", "_" or "~"'),
-    ('about ~5 min', 'literal "*", "_" or "~"'),
+    ('5 \\* 3 and snake\\_case', "literal '*'"),
+    ('about ~5 min', "literal '~'"),
+    ('a lone \\` tick', "literal '`'"),
+    ('a ||spoiler||', "literal '||'"),
     ('``a`b``', 'backtick inside inline code'),
 ])
 def test_dev_inline_errors_name_the_bullet(bullet, problem):

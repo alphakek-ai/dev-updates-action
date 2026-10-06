@@ -88,7 +88,13 @@ def validate_markdown(source, mode, max_bullets):
         pass
     if len(source) > SOURCE_MAX:
         return [f'{mode}.md: is {len(source)} characters; shorten it to at most {SOURCE_MAX}']
-    tokens = markdown_parser().parse(source)
+    hidden = re.search(r'[\x00-\x08\x0b-\x1f\x7f\u200b\u200c\u200e\u200f\u202a-\u202e\u2066-\u2069]', source)
+    if hidden:
+        return [f'{mode}.md: contains the invisible or control character U+{ord(hidden.group()):04X}; remove it']
+    env = {}
+    tokens = markdown_parser().parse(source, env)
+    if env.get('references'):
+        return [f'{mode}.md: contains a link reference definition ([label]: url); remove it']
     blocks = [token for token in tokens if token.level == 0 and token.nesting != -1]
     if [token.type for token in blocks[1:]] != ['bullet_list_open'] or blocks[0].type not in ('paragraph_open', 'heading_open'):
         found = ', '.join(token.type.removesuffix('_open') for token in blocks)

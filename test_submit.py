@@ -36,6 +36,8 @@ def test_good_update_is_valid():
     ('**Update**\n\n' + '- item\n' * 6, 'has 6 bullets; write 1 to 5'),
     ('**' + 'x' * 81 + '**\n\n- item', 'title: is 81 characters'),
     ('**Update**\n\n- item ' + 'x' * 32000, 'shorten it to at most 32000'),
+    ('[x]: https://evil.example\n\n**Update**\n\n- item', 'link reference definition'),
+    ('**Update**\n\n- item \u202e reversed', 'U+202E'),
 ])
 def test_structure_errors_are_specific(markdown, problem):
     errors = submit.validate({**GOOD, 'dev': markdown}, MODES, 5)

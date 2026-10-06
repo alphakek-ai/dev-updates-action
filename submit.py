@@ -64,9 +64,10 @@ def _inline_errors(where, tokens, kind, mode):
     match = re.search(r'[*_~`]|\|\||==', prose)
     if match:
         errors.append(f'{where}: has a literal {match.group()!r}, which some channels format; rephrase without it')
-    if re.search(r'://|\bwww\.', prose):
+    # X renders inline code as plain text, so these two also apply to code spans.
+    if re.search(r'://|\bwww\.', text):
         errors.append(f'{where}: contains a bare URL; use a markdown link to https://github.com/ (dev) or remove it')
-    if re.search(r'(?<![\w@])@[A-Za-z_]', prose):
+    if re.search(r'(?<![\w@])@[A-Za-z_]', text):
         errors.append(f'{where}: mentions an @account, which notifies it on Telegram; remove the mention')
     if re.search(r'\$\d', prose):
         errors.append(f'{where}: has "$" before a digit, which Telegram renders as math; write amounts like "5 USD"')

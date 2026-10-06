@@ -56,6 +56,8 @@ def test_structure_errors_are_specific(markdown, problem):
     ('see https://evil.example/x', 'bare URL'),
     ('see www.evil.example', 'bare URL'),
     ('thanks @someone', '@account'),
+    ('see `https://evil.example/x`', 'bare URL'),
+    ('uses `@someone`', '@account'),
     ('5 \\* 3 and snake\\_case', "literal '*'"),
     ('about ~5 min', "literal '~'"),
     ('a lone \\` tick', "literal '`'"),

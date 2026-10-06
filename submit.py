@@ -16,9 +16,10 @@ from dispatch import RENDERERS, markdown_parser, render
 TITLE_MAX = 80
 BULLET_MAX = 280
 MAX_BLOCKS = 4
-SOURCE_MAX = 32000  # Telegram rich messages allow 32768 characters, footer included.
+SOURCE_MAX = 32000  # Telegram's rich-message limit is 32768; the rest is left for the footer.
 COMMAND = f'{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))}'
-SHAPE = 'Write exactly a bold title line (**Title**) or a heading (# Title), a blank line, then one "- " bullet list.'
+SHAPE = ('Write exactly a bold title line (**Title**) or a plain heading (# Title), a blank line, '
+         'then one "- " bullet list.')
 INLINE = {'softbreak': 'must be a single line', 'hardbreak': 'must be a single line',
           'html_inline': 'contains raw HTML; write plain markdown', 'image': 'contains an image; remove it',
           's_open': 'contains strikethrough; remove it', 'code_inline': 'contains code; describe it in plain words',
@@ -42,6 +43,8 @@ def _inline_errors(where, tokens, kind, mode):
         if token.nesting == -1 or token.type in ALLOWED[kind, mode]:
             if token.type == 'link_open' and not token.attrs.get('href', '').startswith(('https://', 'http://')):
                 errors.append(f'{where}: links must point to an http(s) URL')
+            if token.type == 'code_inline' and '`' in token.content:
+                errors.append(f'{where}: has a backtick inside inline code; remove it')
             continue
         message = INLINE.get(token.type, f'contains unsupported markdown ({token.type}); remove it')
         errors.append(f'{where}: {message}')
@@ -57,8 +60,8 @@ def _inline_errors(where, tokens, kind, mode):
     except ValueError:
         pass
     prose = ' '.join(token.content for token in tokens if token.type == 'text')
-    if re.search(r'[*_]', prose):
-        errors.append(f'{where}: has a literal "*" or "_", which Slack formats as emphasis; rephrase without it')
+    if re.search(r'[*_~]', prose):
+        errors.append(f'{where}: has a literal "*", "_" or "~", which some channels format; rephrase without it')
     if re.search(r'\$\d', prose):
         errors.append(f'{where}: has "$" before a digit, which Telegram renders as math; write amounts like "5 USD"')
     for pattern, message in COMMUNITY if mode == 'community' else []:

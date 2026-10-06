@@ -50,7 +50,9 @@ def test_structure_errors_are_specific(markdown, problem):
     ('[docs](ftp://example.com)', 'http(s) URL'),
     ('x' * 281, 'at most 280'),
     ('Fees from $5 and up', 'math'),
-    ('5 \\* 3 and snake\\_case', 'literal "*" or "_"'),
+    ('5 \\* 3 and snake\\_case', 'literal "*", "_" or "~"'),
+    ('about ~5 min', 'literal "*", "_" or "~"'),
+    ('``a`b``', 'backtick inside inline code'),
 ])
 def test_dev_inline_errors_name_the_bullet(bullet, problem):
     errors = errors_for('dev', bullet)

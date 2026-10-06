@@ -14,7 +14,7 @@ from dispatch import (
 )
 
 DEV = ('**Q&A \\<fixes\\>**\n\n'
-       '- 🔧 `parse_channels()` keeps *quoted* \\<names\\> & ids ([PR](https://github.com/owner/repo/pull/1))\n'
+       '- 🔧 `parse_channels()` keeps *quoted* \\<names\\> & ids ([PR](https://github.com/owner/repo/pull/1#(x)))\n'
        '- 🚀 Ships $AIKEK and **$KEK**\n')
 COMMUNITY = '# Smoother chats\n\n- 💬 Replies arrive \\[faster\\] & more\\_reliably\n'
 
@@ -24,7 +24,7 @@ COMMUNITY = '# Smoother chats\n\n- 💬 Replies arrive \\[faster\\] & more\\_rel
     ('telegram', 'community', COMMUNITY, COMMUNITY.strip() + '\n\nrepo · 2 commit(s) · 3 file(s)'),
     ('discord', 'dev', DEV,
      '**Q&A \\<fixes\\>**\n\n'
-     '- 🔧 `parse_channels()` keeps *quoted* \\<names\\> & ids \\([PR](https://github.com/owner/repo/pull/1)\\)\n'
+     '- 🔧 `parse_channels()` keeps *quoted* \\<names\\> & ids \\([PR](https://github.com/owner/repo/pull/1#%28x%29)\\)\n'
      '- 🚀 Ships $AIKEK and **$KEK**\n\n'
      '[repo](https://github.com/owner/repo) · 2 commit(s) · 3 file(s)'),
     ('discord', 'community', COMMUNITY,
@@ -32,11 +32,11 @@ COMMUNITY = '# Smoother chats\n\n- 💬 Replies arrive \\[faster\\] & more\\_rel
      '[repo](https://github.com/owner/repo) · 2 commit(s) · 3 file(s)'),
     ('slack', 'dev', DEV,
      '*Q&amp;A &lt;fixes&gt;*\n\n'
-     '• 🔧 `parse_channels()` keeps _quoted_ &lt;names&gt; &amp; ids (<https://github.com/owner/repo/pull/1|PR>)\n'
+     '• 🔧 `parse_channels()` keeps _quoted_ &lt;names&gt; &amp; ids (<https://github.com/owner/repo/pull/1#%28x%29|PR>)\n'
      '• 🚀 Ships $AIKEK and *$KEK*\n\n'
      '<https://github.com/owner/repo|repo> · 2 commit(s) · 3 file(s)'),
     ('twitter', 'dev', DEV,
-     'Q&A <fixes>\n\n• 🔧 parse_channels() keeps quoted <names> & ids (PR (https://github.com/owner/repo/pull/1))\n'
+     'Q&A <fixes>\n\n• 🔧 parse_channels() keeps quoted <names> & ids (PR (https://github.com/owner/repo/pull/1#%28x%29))\n'
      '• 🚀 Ships $AIKEK and KEK\n\nrepo · 2 commit(s) · 3 file(s)\n\nhttps://github.com/owner/repo'),
     ('twitter', 'community', COMMUNITY,
      'Smoother chats\n\n• 💬 Replies arrive [faster] & more_reliably\n\nrepo · 2 commit(s) · 3 file(s)'),

@@ -91,7 +91,9 @@ def _inline(tokens: list, text, code, strong: str, em: str, link: str) -> str:
             inner = "".join(out[start:])
             del out[start:]
             fmt = {"strong_open": strong, "em_open": em, "link_open": link}[opening.type]
-            out.append(fmt.format(inner, url=opening.attrs.get("href")))
+            # markdown-it percent-encodes hrefs except parentheses, which would end a markdown link early.
+            url = str(opening.attrs.get("href", "")).replace("(", "%28").replace(")", "%29")
+            out.append(fmt.format(inner, url=url))
     return "".join(out)
 
 

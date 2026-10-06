@@ -21,6 +21,7 @@ def errors_for(mode, bullet):
 
 def test_good_update_is_valid():
     assert submit.validate(GOOD, MODES, 5) == []
+    assert submit.validate({mode: text.replace('\n', '\r\n') for mode, text in GOOD.items()}, MODES, 5) == []
 
 
 @pytest.mark.parametrize('markdown, problem', [
@@ -39,6 +40,7 @@ def test_good_update_is_valid():
     ('[x]: https://evil.example\n\n**Update**\n\n- item', 'link reference definition'),
     ('**Update**\n\n- item \u202e reversed', 'U+202E'),
     ('**Update**\n\n- soft\u00adhyphen', 'U+00AD'),
+    ('**Update**\n\n- thanks @&#8203;someone', 'U+200B'),
 ])
 def test_structure_errors_are_specific(markdown, problem):
     errors = submit.validate({**GOOD, 'dev': markdown}, MODES, 5)

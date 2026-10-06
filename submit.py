@@ -52,7 +52,11 @@ def _inline_errors(where, tokens, kind, mode):
             continue
         message = INLINE.get(token.type, f'contains unsupported markdown ({token.type}); remove it')
         errors.append(f'{where}: {message}')
+    # Joined without separators so a mention or URL split across tokens is still caught.
     text = ''.join(token.content for token in tokens if token.type in ('text', 'code_inline'))
+    hidden = [char for char in text if unicodedata.category(char) in ('Cc', 'Cf') and char != '\u200d']
+    if hidden:  # Entities such as &#8238; decode to these after the raw-source check.
+        errors.append(f'{where}: contains the invisible or control character U+{ord(hidden[0]):04X}; remove it')
     limit = TITLE_MAX if kind == 'title' else BULLET_MAX
     if not text.strip():
         errors.append(f'{where}: is empty')
@@ -93,7 +97,7 @@ def validate_markdown(source, mode, max_bullets):
     if len(source) > SOURCE_MAX:
         return [f'{mode}.md: is {len(source)} characters; shorten it to at most {SOURCE_MAX}']
     # Format and control characters are invisible; the zero-width joiner is kept for emoji sequences.
-    hidden = [char for char in source if unicodedata.category(char) in ('Cc', 'Cf') and char not in '\n\t\u200d']
+    hidden = [char for char in source if unicodedata.category(char) in ('Cc', 'Cf') and char not in '\r\n\t\u200d']
     if hidden:
         return [f'{mode}.md: contains the invisible or control character U+{ord(hidden[0]):04X}; remove it']
     env = {}
@@ -153,11 +157,19 @@ def main():
             print(f'The only permitted shell command is: {COMMAND}', file=sys.stderr)
             return 2  # Exit code 2 denies the tool call.
         return 0
-    directory = Path(os.environ['UPDATE_DIR'])
-    modes = [mode for mode in ('dev', 'community') if os.environ.get('HAS_' + mode.upper()) == 'true']
-    update, errors = load(directory, modes, int(os.environ['MAX_BULLETS']))
     if '--hook' in sys.argv:
         sys.stdin.read()
+    try:
+        directory = Path(os.environ['UPDATE_DIR'])
+        modes = [mode for mode in ('dev', 'community') if os.environ.get('HAS_' + mode.upper()) == 'true']
+        update, errors = load(directory, modes, int(os.environ['MAX_BULLETS']))
+    except Exception as error:
+        if '--hook' not in sys.argv:
+            raise
+        # A crashing Stop hook would let the agent stop without being told why.
+        print(json.dumps({'decision': 'block', 'reason': f'The update check failed: {error!r}'}))
+        return 0
+    if '--hook' in sys.argv:
         attempts = directory / 'stop-attempts'
         blocked = int(attempts.read_text()) if attempts.exists() else 0
         # Publication re-validates, so a capped run still cannot publish an invalid update.

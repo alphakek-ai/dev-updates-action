@@ -16,6 +16,7 @@ from dispatch import RENDERERS, markdown_parser, render
 TITLE_MAX = 80
 BULLET_MAX = 280
 MAX_BLOCKS = 4
+SOURCE_MAX = 32000  # Telegram rich messages allow 32768 characters, footer included.
 COMMAND = f'{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))}'
 SHAPE = 'Write exactly a bold title line (**Title**) or a heading (# Title), a blank line, then one "- " bullet list.'
 INLINE = {'softbreak': 'must be a single line', 'hardbreak': 'must be a single line',
@@ -29,7 +30,7 @@ ALLOWED = {('title', 'dev'): {'text', 'code_inline'}, ('title', 'community'): {'
 COMMUNITY = [
     (re.compile(r'(?:^|[\s(])(?:\.{0,2}/)?(?:[\w.-]+/)+[\w-]*[A-Za-z][\w-]*\.[A-Za-z]\w*|\b[\w-]+\.(?:py|pyi|js|jsx|'
                 r'ts|tsx|json|ya?ml|toml|md|sql|sh|go|rs|rb|java|kt|css|html|lock|env|ini|cfg)\b|(?:^|\s)/?(?:[\w.-]+/){2,}'),
-     'mentions a file path ({!r}); describe the user-facing effect instead'),
+     'mentions a file path or file-like name ({!r}); describe the user-facing effect instead'),
     (re.compile(r'\bv\d+(?:\.\d+)*\b|\b\d+\.\d+\.\d+\b|@\d'),
      'mentions a version number ({!r}); community text must not name versions'),
 ]
@@ -56,6 +57,8 @@ def _inline_errors(where, tokens, kind, mode):
     except ValueError:
         pass
     prose = ' '.join(token.content for token in tokens if token.type == 'text')
+    if re.search(r'[*_]', prose):
+        errors.append(f'{where}: has a literal "*" or "_", which Slack formats as emphasis; rephrase without it')
     if re.search(r'\$\d', prose):
         errors.append(f'{where}: has "$" before a digit, which Telegram renders as math; write amounts like "5 USD"')
     for pattern, message in COMMUNITY if mode == 'community' else []:
@@ -74,6 +77,8 @@ def validate_markdown(source, mode, max_bullets):
             return [f'{mode}.md: is JSON; write markdown, not JSON. {SHAPE}']
     except ValueError:
         pass
+    if len(source) > SOURCE_MAX:
+        return [f'{mode}.md: is {len(source)} characters; shorten it to at most {SOURCE_MAX}']
     tokens = markdown_parser().parse(source)
     blocks = [token for token in tokens if token.level == 0 and token.nesting != -1]
     if [token.type for token in blocks[1:]] != ['bullet_list_open'] or blocks[0].type not in ('paragraph_open', 'heading_open'):

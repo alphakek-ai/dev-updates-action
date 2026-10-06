@@ -35,6 +35,7 @@ def test_good_update_is_valid():
     ('**Update**\n\n- item\n  - nested', 'bullet 1: must be one line'),
     ('**Update**\n\n' + '- item\n' * 6, 'has 6 bullets; write 1 to 5'),
     ('**' + 'x' * 81 + '**\n\n- item', 'title: is 81 characters'),
+    ('**Update**\n\n- item ' + 'x' * 32000, 'shorten it to at most 32000'),
 ])
 def test_structure_errors_are_specific(markdown, problem):
     errors = submit.validate({**GOOD, 'dev': markdown}, MODES, 5)
@@ -49,6 +50,7 @@ def test_structure_errors_are_specific(markdown, problem):
     ('[docs](ftp://example.com)', 'http(s) URL'),
     ('x' * 281, 'at most 280'),
     ('Fees from $5 and up', 'math'),
+    ('5 \\* 3 and snake\\_case', 'literal "*" or "_"'),
 ])
 def test_dev_inline_errors_name_the_bullet(bullet, problem):
     errors = errors_for('dev', bullet)

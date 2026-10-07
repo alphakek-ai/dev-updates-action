@@ -73,6 +73,16 @@ def test_single_overlong_line_is_truncated_not_dropped():
     assert len(text) <= 2000 and text.split('…')[0].endswith('word')
 
 
+def test_first_line_alone_is_never_posted():
+    text = dispatch.render('twitter', '**Title**\n\n- ' + 'word ' * 60, 'community', 'owner/repo', '2', '3', 280)
+    assert len(text) <= 280 and text.startswith('Title\n\n• word word') and '…' in text
+
+
+def test_code_with_backticks_keeps_its_fence():
+    text = dispatch.render('discord', 'Run ``a`b`` now', 'community', 'o/r', '1', '1')
+    assert text.startswith('Run `` a`b `` now')
+
+
 def test_slack_escapes_link_targets():
     text = dispatch.render('slack', '**Update**\n\n- [diff](https://github.com/o/r/compare?a=1&b=2)\n', 'dev', 'o/r', '1', '1')
     assert '<https://github.com/o/r/compare?a=1&amp;b=2|diff>' in text

@@ -145,13 +145,21 @@ def _slack_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _code(code: str, block: bool = False) -> str:
+    """Wrap code in a fence longer than any run of backticks inside it."""
+    ticks = "`" * max(3 if block else 1, max(map(len, re.findall(r"`+", code)), default=0) + 1)
+    if block:
+        return f"{ticks}\n{code}\n{ticks}"
+    return f"{ticks} {code} {ticks}" if "`" in code else f"{ticks}{code}{ticks}"
+
+
 DIALECTS = {
-    "discord": {"text": _discord_escape, "code": lambda code: f"`{code}`", "strong_open": "**{}**", "em_open": "*{}*",
+    "discord": {"text": _discord_escape, "code": _code, "strong_open": "**{}**", "em_open": "*{}*",
                 "s_open": "~~{}~~", "link": lambda text, url: f"[{text}]({url})", "heading": "**{}**", "bullet": "- ",
-                "block": lambda code: f"```\n{code}\n```"},
-    "slack": {"text": _slack_escape, "code": lambda code: f"`{_slack_escape(code)}`", "strong_open": "*{}*",
+                "block": lambda code: _code(code, block=True)},
+    "slack": {"text": _slack_escape, "code": lambda code: _code(_slack_escape(code)), "strong_open": "*{}*",
               "em_open": "_{}_", "s_open": "~{}~", "link": lambda text, url: f"<{_slack_escape(url)}|{text}>",
-              "heading": "*{}*", "bullet": "• ", "block": lambda code: f"```\n{_slack_escape(code)}\n```"},
+              "heading": "*{}*", "bullet": "• ", "block": lambda code: _code(_slack_escape(code), block=True)},
     "twitter": {"text": str, "code": str, "link": lambda text, url: f"{text} ({url})", "heading": "{}", "bullet": "• ",
                 "block": str},
 }
@@ -181,12 +189,17 @@ def render(kind: str, markdown: str, mode: str, repo: str, commits: str, files: 
         lines = _limit_cashtags("\n".join(lines)).split("\n")  # X allows at most one cashtag per post
     limit = limit or LIMITS.get(kind, 0)
     for count in range(len(lines), 0, -1):
-        text = "\n".join(lines[:count]).strip() + "\n\n" + footer
-        if not limit or len(text) <= limit:
-            return text
-    # Cut at a word boundary so an escape or a short markup token is less likely to be split.
-    cut = lines[0][:max(limit - len(footer) - 3, 0)].rsplit(" ", 1)[0].rstrip("\\")
-    return cut + "…\n\n" + footer
+        body = "\n".join(lines[:count]).strip()
+        if len([line for line in lines if line.strip()]) > 1 and "\n" not in body:
+            break  # Truncate instead of posting only the first line.
+        if not limit or len(body) + len(footer) + 2 <= limit:
+            return f"{body}\n\n{footer}"
+    room = limit - len(footer) - 3
+    if room <= 0:
+        raise DeliveryNotAttempted(f"The footer alone exceeds the {kind} limit of {limit} characters")
+    # Cut at a word boundary; markup spanning the cut (a link or code span) can still be left open.
+    cut = "\n".join(lines).strip()[:room].rsplit(" ", 1)[0].rstrip("\\")
+    return f"{cut}…\n\n{footer}"
 
 
 def send_telegram(ch: dict, markdown: str, repo: str, commits: str, files: str) -> None:

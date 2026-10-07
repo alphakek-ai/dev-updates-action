@@ -1,7 +1,7 @@
 """Render validated markdown updates and dispatch them to configured channels.
 
-An update is a markdown title line plus one bullet list (validated by submit.py).
-Telegram receives the markdown itself; other channels get a rendering of its parse tree.
+An update is any markdown (validated by submit.py). Telegram receives the markdown
+itself; other channels get a rendering of its parse tree.
 
 Supported channel types: telegram, discord, slack, twitter.
 """
@@ -64,27 +64,17 @@ def markdown_parser():
     # Imported lazily: `publication.py prepare` runs before the locked dependencies are installed.
     from markdown_it import MarkdownIt
 
-    return MarkdownIt("commonmark").enable(["table", "strikethrough"])  # GFM syntax parses, so it can be rejected
+    return MarkdownIt("commonmark").enable(["table", "strikethrough"])  # The GFM extensions Telegram also parses
 
 
-def outline(markdown: str) -> tuple[list, list[list]]:
-    """Inline tokens of the title and of each bullet of a validated update."""
-    inlines = [token.children for token in markdown_parser().parse(markdown) if token.type == "inline"]
-    assert len(inlines) >= 2, "outline() needs an update that passed submit.validate()"
-    title = [token for token in inlines[0] if token.type != "text" or token.content]
-    if title and title[0].type == "strong_open" and title[-1].type == "strong_close":
-        title = title[1:-1]  # "**Title**"; each channel applies its own bold
-    return title, inlines[1:]
-
-
-def _inline(tokens: list, text, code, strong: str, em: str, link) -> str:
+def _inline(tokens: list, dialect: dict) -> str:
     out: list[str] = []
     opened: list[tuple[int, object]] = []
     for token in tokens:
         if token.type == "text":
-            out.append(text(token.content))
+            out.append(dialect["text"](token.content))
         elif token.type == "code_inline":
-            out.append(code(token.content))
+            out.append(dialect["code"](token.content))
         elif token.type in ("softbreak", "hardbreak"):
             out.append(" ")
         elif token.nesting == 1:
@@ -95,10 +85,75 @@ def _inline(tokens: list, text, code, strong: str, em: str, link) -> str:
             del out[start:]
             if opening.type == "link_open":
                 # markdown-it percent-encodes hrefs except parentheses, which would end a markdown link early.
-                out.append(link(inner, str(opening.attrs["href"]).replace("(", "%28").replace(")", "%29")))
+                out.append(dialect["link"](inner, str(opening.attrs["href"]).replace("(", "%28").replace(")", "%29")))
             else:
-                out.append({"strong_open": strong, "em_open": em}.get(opening.type, "{}").format(inner))
+                out.append(dialect.get(opening.type, "{}").format(inner))
     return "".join(out)
+
+
+def _lines(markdown: str, dialect: dict) -> list[str]:
+    """Render any markdown into the dialect, one output line per block or list item."""
+    lines: list[str] = []
+    lists: list[int | None] = []  # Next number per open list; None for bullets.
+    marker, heading, quote, row = None, False, 0, None
+    for token in markdown_parser().parse(markdown):
+        if token.level == 0 and token.nesting != -1 and lines and lines[-1]:
+            lines.append("")
+        if token.type == "bullet_list_open":
+            lists.append(None)
+        elif token.type == "ordered_list_open":
+            lists.append(int(token.attrs.get("start", 1)))
+        elif token.type in ("bullet_list_close", "ordered_list_close"):
+            lists.pop()
+        elif token.type == "list_item_open":
+            marker = "  " * (len(lists) - 1) + (dialect["bullet"] if lists[-1] is None else f"{lists[-1]}. ")
+            if lists[-1] is not None:
+                lists[-1] += 1
+        elif token.type in ("heading_open", "heading_close"):
+            heading = token.type == "heading_open"
+        elif token.type in ("blockquote_open", "blockquote_close"):
+            quote += token.nesting
+        elif token.type == "tr_open":
+            row = []
+        elif token.type == "tr_close":
+            lines.append(" | ".join(row))
+            row = None
+        elif token.type == "inline":
+            text = _inline(token.children, dialect)
+            if row is not None:
+                row.append(text)
+                continue
+            text = dialect["heading"].format(text) if heading else text
+            lines.append("> " * quote + (marker or "  " * len(lists)) + text)
+            marker = None
+        elif token.type == "html_block":
+            lines.append(dialect["text"](token.content.strip()))
+        elif token.type in ("fence", "code_block"):
+            lines.append(dialect["block"](token.content.rstrip("\n")))
+        elif token.type == "hr":
+            lines.append("———")
+    return lines or [""]
+
+
+def _discord_escape(text: str) -> str:
+    return re.sub(r"([\\*_~`|>#\[\]()<-])", r"\\\1", text)
+
+
+def _slack_escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+DIALECTS = {
+    "discord": {"text": _discord_escape, "code": lambda code: f"`{code}`", "strong_open": "**{}**", "em_open": "*{}*",
+                "s_open": "~~{}~~", "link": lambda text, url: f"[{text}]({url})", "heading": "**{}**", "bullet": "- ",
+                "block": lambda code: f"```\n{code}\n```"},
+    "slack": {"text": _slack_escape, "code": lambda code: f"`{_slack_escape(code)}`", "strong_open": "*{}*",
+              "em_open": "_{}_", "s_open": "~{}~", "link": lambda text, url: f"<{_slack_escape(url)}|{text}>",
+              "heading": "*{}*", "bullet": "• ", "block": lambda code: f"```\n{_slack_escape(code)}\n```"},
+    "twitter": {"text": str, "code": str, "link": lambda text, url: f"{text} ({url})", "heading": "{}", "bullet": "• ",
+                "block": str},
+}
+LIMITS = {"discord": 2000, "slack": 3000}
 
 
 def render_telegram(markdown: str, mode: str, repo: str, commits: str, files: str) -> str:
@@ -109,50 +164,25 @@ def render_telegram(markdown: str, mode: str, repo: str, commits: str, files: st
     return f"{markdown.strip()}\n\n{footer}"
 
 
-def _discord_escape(text: str) -> str:
-    return re.sub(r"([\\*_~`|>#\[\]()<-])", r"\\\1", text)
-
-
-def render_discord(title: list, bullets: list, mode: str, repo: str, commits: str, files: str) -> str:
-    line = lambda tokens: _inline(tokens, _discord_escape, lambda code: f"`{code}`", "**{}**", "*{}*", lambda text, url: f"[{text}]({url})")
-    footer = f"[{_discord_escape(repo.split('/')[-1])}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)"
-    return "\n".join([f"**{line(title)}**", "", *(f"- {line(b)}" for b in bullets), "", footer])
-
-
-def _slack_escape(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def render_slack(title: list, bullets: list, mode: str, repo: str, commits: str, files: str) -> str:
-    line = lambda tokens: _inline(tokens, _slack_escape, lambda code: f"`{_slack_escape(code)}`", "*{}*", "_{}_",
-                                  lambda text, url: f"<{_slack_escape(url)}|{text}>")
-    footer = f"<https://github.com/{repo}|{_slack_escape(repo.split('/')[-1])}> · {commits} commit(s) · {files} file(s)"
-    return "\n".join([f"*{line(title)}*", "", *(f"• {line(b)}" for b in bullets), "", footer])
-
-
-def render_twitter(title: list, bullets: list, mode: str, repo: str, commits: str, files: str) -> str:
-    line = lambda tokens: _inline(tokens, str, str, "{}", "{}", lambda text, url: f"{text} ({url})")
-    lines = [line(title), "", *(f"• {line(b)}" for b in bullets), "", _stats(repo, commits, files)]
-    if mode == "dev":
-        lines += ["", f"https://github.com/{repo}"]
-    return _limit_cashtags("\n".join(lines))  # X allows at most one cashtag per post
-
-
-RENDERERS = {"discord": render_discord, "slack": render_slack, "twitter": render_twitter}
-LIMITS = {"discord": 2000, "slack": 3000}
-
-
 def render(kind: str, markdown: str, mode: str, repo: str, commits: str, files: str, limit: int = 0) -> str:
-    """Render for a channel type, dropping trailing bullets until the message fits its limit."""
+    """Render for a channel type, dropping trailing lines (then truncating) until the message fits its limit."""
     if kind == "telegram":
         return render_telegram(markdown, mode, repo, commits, files)
-    title, bullets = outline(markdown)
+    name = repo.split("/")[-1]
+    footer = {
+        "discord": f"[{_discord_escape(name)}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)",
+        "slack": f"<https://github.com/{repo}|{_slack_escape(name)}> · {commits} commit(s) · {files} file(s)",
+        "twitter": _stats(repo, commits, files) + (f"\n\nhttps://github.com/{repo}" if mode == "dev" else ""),
+    }[kind]
+    lines = _lines(markdown, DIALECTS[kind])
+    if kind == "twitter":
+        lines = _limit_cashtags("\n".join(lines)).split("\n")  # X allows at most one cashtag per post
     limit = limit or LIMITS.get(kind, 0)
-    for count in range(len(bullets), 0, -1):
-        text = RENDERERS[kind](title, bullets[:count], mode, repo, commits, files)
+    for count in range(len(lines), 0, -1):
+        text = "\n".join(lines[:count]).strip() + "\n\n" + footer
         if not limit or len(text) <= limit:
             return text
-    raise DeliveryNotAttempted(f"Even one bullet exceeds the {kind} limit of {limit} characters")
+    return lines[0][:max(limit - len(footer) - 3, 0)] + "…\n\n" + footer
 
 
 def send_telegram(ch: dict, markdown: str, repo: str, commits: str, files: str) -> None:

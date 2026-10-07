@@ -7,7 +7,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import time
 
 from dispatch import DISPATCHERS, DeliveryNotAttempted, _is_required, _normalize_mode, parse_channels
@@ -115,7 +114,7 @@ def prepare(journal, head, cooldown, now, channels):
     return {'skip': 'false', 'resume': 'false', 'before': last, 'after': head}
 
 
-def publish(journal, channels, before, after, update_dir, max_bullets, repo, now, senders=DISPATCHERS):
+def publish(journal, channels, before, after, update_dir, repo, now, senders=DISPATCHERS):
     state = journal.load()
     fingerprint = channel_fingerprint(channels)
     batch = state['batch']
@@ -123,7 +122,7 @@ def publish(journal, channels, before, after, update_dir, max_bullets, repo, now
     if not batch:
         if state['last_sha'] != before or not ancestor(before, after) or before == after:
             raise RuntimeError('Checkpoint changed after preparation; refusing stale publication')
-        summaries, errors = submit.load(update_dir, modes, max_bullets)
+        summaries, errors = submit.load(update_dir, modes)
         if errors:
             raise ValueError('Refusing to publish an invalid update:\n' + '\n'.join(errors))
         batch = state['batch'] = {
@@ -135,8 +134,7 @@ def publish(journal, channels, before, after, update_dir, max_bullets, repo, now
         journal.save()
     if (batch['before'], batch['after'], batch['channels']) != (before, after, fingerprint):
         raise RuntimeError('Outstanding publication does not match prepared range/channels')
-    # Frozen text passed validation when journaled; this rejects batches from older releases.
-    errors = submit.validate(batch['summaries'], modes, sys.maxsize)
+    errors = submit.validate(batch['summaries'], modes)  # Frozen batches from other formats are not sent.
     if errors and 'ready' in batch['deliveries'].values():
         raise ValueError('Outstanding batch holds an invalid update; abandon its channels with resolve:\n'
                          + '\n'.join(errors))
@@ -242,7 +240,7 @@ def main():
         print(json.dumps(result))
     else:
         publish(journal, channels, os.environ['BEFORE'], os.environ['AFTER'], os.environ['UPDATE_DIR'],
-                int(os.environ['MAX_BULLETS']), os.environ['GITHUB_REPOSITORY'], time.time)
+                os.environ['GITHUB_REPOSITORY'], time.time)
 
 
 if __name__ == '__main__':

@@ -128,7 +128,6 @@ runs:
         STATE_REF: ${{ inputs.state_ref }}
         BEFORE: ${{ steps.range.outputs.before }}
         AFTER: ${{ steps.range.outputs.after }}
-        MAX_BULLETS: ${{ inputs.max_bullets }}
         UPDATE_DIR: ${{ runner.temp }}/dev-updates
         ACTION_PATH: ${{ github.action_path }}
         GH_TOKEN: ${{ github.token }}

@@ -10,47 +10,33 @@ from pathlib import Path
 import shlex
 import sys
 
-from dispatch import RENDERERS, markdown_parser, render
+from dispatch import DIALECTS, render
 
 MAX_BLOCKS = 4
 SOURCE_MAX = 32000  # Telegram's rich-message limit is 32768; the rest is left for the footer.
 COMMAND = f'{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))}'
-SHAPE = 'Write a title line (**Title** or # Title), a blank line, then one "- " bullet list.'
 
 
-def validate_markdown(source, mode, max_bullets):
-    """Errors for one mode's markdown; empty means every channel can render it."""
-    if not isinstance(source, str) or not source.strip():
-        return [f'{mode}.md: is empty. {SHAPE}']
-    try:
-        if isinstance(json.loads(source), (dict, list)):
-            return [f'{mode}.md: is JSON; write markdown instead. {SHAPE}']
-    except ValueError:
-        pass
-    if len(source) > SOURCE_MAX:
-        return [f'{mode}.md: is {len(source)} characters; shorten it to at most {SOURCE_MAX}']
-    tokens = markdown_parser().parse(source)
-    blocks = [token.type.removesuffix('_open') for token in tokens if token.level == 0 and token.nesting != -1]
-    if blocks not in (['paragraph', 'bullet_list'], ['heading', 'bullet_list']):
-        return [f'{mode}.md: found [{", ".join(blocks)}]. {SHAPE} Nothing else.']
-    items = [i for i, token in enumerate(tokens) if token.type == 'list_item_open' and token.level == 1]
-    # Each bullet must be one paragraph so the other channels can rebuild it line by line.
-    shape = ['paragraph_open', 'inline', 'paragraph_close', 'list_item_close']
-    if any([token.type for token in tokens[i + 1:i + 5]] != shape for i in items):
-        return [f'{mode}.md: each bullet must be one paragraph, with no nested lists or blocks']
-    if not 1 <= len(items) <= max_bullets:
-        return [f'{mode}.md: has {len(items)} bullets; write 1 to {max_bullets}']
-    return []
-
-
-def validate(update, modes, max_bullets):
-    """Errors for an update mapping each active mode to its markdown."""
+def validate(update, modes):
+    """Errors for an update mapping each active mode to its markdown; empty means it can be published."""
     if not isinstance(update, dict) or set(update) != set(modes):
         return [f'the update must have exactly these modes: {", ".join(modes)}']
-    return [error for mode in modes for error in validate_markdown(update[mode], mode, max_bullets)]
+    errors = []
+    for mode, source in update.items():
+        if not isinstance(source, str) or not source.strip():
+            errors.append(f'{mode}.md: is empty; write the update as markdown')
+            continue
+        try:
+            if isinstance(json.loads(source), (dict, list)):
+                errors.append(f'{mode}.md: is JSON; write markdown instead')
+        except ValueError:
+            pass
+        if len(source) > SOURCE_MAX:
+            errors.append(f'{mode}.md: is {len(source)} characters; shorten it to at most {SOURCE_MAX}')
+    return errors
 
 
-def load(directory, modes, max_bullets):
+def load(directory, modes):
     """Read and validate <mode>.md files; returns (update, errors)."""
     update, errors = {}, []
     for mode in modes:
@@ -60,13 +46,13 @@ def load(directory, modes, max_bullets):
             errors.append(f'{Path(directory) / f"{mode}.md"}: does not exist; write it with the Write tool')
         except (OSError, UnicodeDecodeError) as error:
             errors.append(f'{Path(directory) / f"{mode}.md"}: cannot be read ({error}); rewrite it')
-    return update, errors or validate(update, modes, max_bullets)
+    return update, errors or validate(update, modes)
 
 
 def check():
     directory = Path(os.environ['UPDATE_DIR'])
     modes = [mode for mode in ('dev', 'community') if os.environ.get('HAS_' + mode.upper()) == 'true']
-    return directory, modes, *load(directory, modes, int(os.environ['MAX_BULLETS']))
+    return directory, modes, *load(directory, modes)
 
 
 def stop_hook():
@@ -109,7 +95,7 @@ def main():
     commits, files = os.environ.get('COMMIT_COUNT', '?'), os.environ.get('FILE_COUNT', '?')
     print('VALID - these are the exact messages that will be published:')
     for mode in modes:
-        for channel in ['telegram', *RENDERERS]:
+        for channel in ['telegram', *DIALECTS]:
             print(f'\n===== {channel} ({mode}) =====\n{render(channel, update[mode], mode, repo, commits, files)}')
     return 0
 

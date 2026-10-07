@@ -45,9 +45,12 @@ def test_channels_receive_exact_messages(kind, mode, markdown, expected):
     assert dispatch.render(kind, markdown, mode, 'owner/repo', '2', '3') == expected
 
 
-def test_unvalidated_inline_markup_degrades_to_text():
-    markdown = '**Update**\n\n- see ~~old~~ <b>x</b> ![img](https://e.x/i.png) line\n  wrapped\n'
-    assert dispatch.render('twitter', markdown, 'community', 'o/r', '1', '1').splitlines()[2] == '• see old x  line wrapped'
+def test_any_markdown_renders_line_by_line():
+    markdown = ('## Notes\n\nIntro with ~~old~~ <b>x</b> text\nwrapped.\n\n1. first\n   - nested\n2. second\n\n'
+                '> quoted\n\n```\ncode()\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n')
+    assert dispatch.render('discord', markdown, 'community', 'o/r', '1', '1') == (
+        '**Notes**\n\nIntro with ~~old~~ x text wrapped.\n\n1. first\n  - nested\n2. second\n\n'
+        '> quoted\n\n```\ncode()\n```\n\na | b\n1 | 2\n\n[r](https://github.com/o/r) · 1 commit(s) · 1 file(s)')
 
 
 def test_telegram_footer_keeps_repo_name_literal():
@@ -57,15 +60,15 @@ def test_telegram_footer_keeps_repo_name_literal():
 
 
 @pytest.mark.parametrize('kind, limit', [('twitter', 60), ('discord', 0)])
-def test_long_messages_drop_trailing_bullets_and_keep_footer(kind, limit):
+def test_long_messages_drop_trailing_lines_and_keep_footer(kind, limit):
     markdown = '**Update**\n\n- one\n- ' + 'x' * 2000 + '\n- three\n'
     text = dispatch.render(kind, markdown, 'community', 'owner/repo', '2', '3', limit)
     assert 'one' in text and 'three' not in text and text.endswith('3 file(s)')
 
 
-def test_message_without_room_for_a_bullet_is_not_sent():
-    with pytest.raises(dispatch.DeliveryNotAttempted, match='twitter limit'):
-        dispatch.render('twitter', '**Update**\n\n- ' + 'x' * 250 + '\n', 'community', 'owner/repo', '2', '3', 280)
+def test_single_overlong_line_is_truncated_not_dropped():
+    text = dispatch.render('twitter', 'x' * 500, 'community', 'owner/repo', '2', '3', 280)
+    assert len(text) <= 280 and text.startswith('xxx') and '…\n\nrepo · 2 commit(s)' in text
 
 
 def test_slack_escapes_link_targets():

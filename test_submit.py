@@ -15,26 +15,16 @@ MODES = ['dev', 'community']
 INCIDENT = '{"title":"**Dev update**","bullets":["🔁 Retries"]}'
 
 
-def test_good_update_is_valid():
-    assert submit.validate(GOOD, MODES, 5) == []
-
-
 @pytest.mark.parametrize('markdown, problem', [
+    (DEV, None),
+    ('Any *markdown*\n\n1. even\n2. ordered\n\n| a |\n|---|\n| b |', None),
     (INCIDENT, 'is JSON'),
-    ('', 'is empty'),
-    ('Update\n\n- item', ''),  # A plain title line is fine.
-    ('**Update**\n\nIntro paragraph.\n\n- item', 'found [paragraph, paragraph, bullet_list]'),
-    ('**Update**\n\n1. item', 'found [paragraph, ordered_list]'),
-    ('**Update**\n\n| a |\n|---|\n| b |', 'found [paragraph, table]'),
-    ('**Update**\n\n- item\n\n```\ncode\n```', 'found [paragraph, bullet_list, fence]'),
-    ('**Update**\n\n- item\n  - nested', 'each bullet must be one paragraph'),
-    ('**Update**\n\n' + '- item\n' * 6, 'has 6 bullets; write 1 to 5'),
-    ('**Update**\n\n- item ' + 'x' * 32000, 'shorten it to at most 32000'),
+    ('  \n', 'is empty'),
+    ('x' * 32001, 'shorten it to at most 32000'),
 ])
-def test_errors_are_specific(markdown, problem):
-    errors = submit.validate({**GOOD, 'dev': markdown}, MODES, 5)
-    assert all(error.startswith('dev.md:') for error in errors)
-    assert any(problem in error for error in errors) if problem else errors == []
+def test_validation(markdown, problem):
+    errors = submit.validate({**GOOD, 'dev': markdown}, MODES)
+    assert errors == [] if problem is None else [error for error in errors if problem in error] == errors != []
 
 
 @pytest.fixture

@@ -62,7 +62,7 @@ def generate():
     # Explicit environment excludes Git and channel credentials.
     env = {key: value for key, value in os.environ.items()
            if key in ('PATH', 'HOME', 'LANG', 'TMPDIR', 'CI', 'CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_REPOSITORY',
-                      'UPDATE_DIR', 'HAS_DEV', 'HAS_COMMUNITY', 'MAX_BULLETS')}
+                      'UPDATE_DIR', 'HAS_DEV', 'HAS_COMMUNITY')}
     env.update(COMMIT_COUNT=commits, FILE_COUNT=files)
     model = os.environ['MODEL']
     result = subprocess.run([
@@ -81,7 +81,7 @@ def generate():
     print(f'Model requested: {model}; used: {", ".join(response.get("modelUsage") or {}) or "unknown"}')
     if response.get('is_error') or response.get('subtype') != 'success':
         raise RuntimeError('Summary generation failed')
-    update, errors = submit.load(workdir, modes, int(os.environ['MAX_BULLETS']))
+    update, errors = submit.load(workdir, modes)
     if errors:
         raise ValueError('Generated update is invalid:\n' + '\n'.join(errors))
     text = '\n'.join(update.values())

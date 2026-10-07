@@ -77,6 +77,8 @@ def _inline(tokens: list, dialect: dict) -> str:
             out.append(dialect["code"](token.content))
         elif token.type in ("softbreak", "hardbreak"):
             out.append(" ")
+        elif token.type == "image":
+            out.append(_inline(token.children, dialect))  # Alt text
         elif token.nesting == 1:
             opened.append((len(out), token))
         elif token.nesting == -1:
@@ -182,7 +184,9 @@ def render(kind: str, markdown: str, mode: str, repo: str, commits: str, files: 
         text = "\n".join(lines[:count]).strip() + "\n\n" + footer
         if not limit or len(text) <= limit:
             return text
-    return lines[0][:max(limit - len(footer) - 3, 0)] + "…\n\n" + footer
+    # Cut at a word boundary so an escape or a short markup token is less likely to be split.
+    cut = lines[0][:max(limit - len(footer) - 3, 0)].rsplit(" ", 1)[0].rstrip("\\")
+    return cut + "…\n\n" + footer
 
 
 def send_telegram(ch: dict, markdown: str, repo: str, commits: str, files: str) -> None:

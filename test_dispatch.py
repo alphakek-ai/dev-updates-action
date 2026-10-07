@@ -46,10 +46,10 @@ def test_channels_receive_exact_messages(kind, mode, markdown, expected):
 
 
 def test_any_markdown_renders_line_by_line():
-    markdown = ('## Notes\n\nIntro with ~~old~~ <b>x</b> text\nwrapped.\n\n1. first\n   - nested\n2. second\n\n'
+    markdown = ('## Notes\n\nIntro with ~~old~~ <b>x</b> ![a chart](https://e.x/c.png) text\nwrapped.\n\n1. first\n   - nested\n2. second\n\n'
                 '> quoted\n\n```\ncode()\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n')
     assert dispatch.render('discord', markdown, 'community', 'o/r', '1', '1') == (
-        '**Notes**\n\nIntro with ~~old~~ x text wrapped.\n\n1. first\n  - nested\n2. second\n\n'
+        '**Notes**\n\nIntro with ~~old~~ x a chart text wrapped.\n\n1. first\n  - nested\n2. second\n\n'
         '> quoted\n\n```\ncode()\n```\n\na | b\n1 | 2\n\n[r](https://github.com/o/r) · 1 commit(s) · 1 file(s)')
 
 
@@ -69,6 +69,8 @@ def test_long_messages_drop_trailing_lines_and_keep_footer(kind, limit):
 def test_single_overlong_line_is_truncated_not_dropped():
     text = dispatch.render('twitter', 'x' * 500, 'community', 'owner/repo', '2', '3', 280)
     assert len(text) <= 280 and text.startswith('xxx') and '…\n\nrepo · 2 commit(s)' in text
+    text = dispatch.render('discord', 'word ' * 500 + '\\- end', 'community', 'owner/repo', '2', '3')
+    assert len(text) <= 2000 and text.split('…')[0].endswith('word')
 
 
 def test_slack_escapes_link_targets():

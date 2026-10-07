@@ -80,12 +80,8 @@ def main():
         return 0
     if '--hook' in sys.argv:
         sys.stdin.read()
-        try:
-            return stop_hook()
-        except Exception as error:
-            # A crashing Stop hook would let the agent stop without being told why.
-            print(json.dumps({'decision': 'block', 'reason': f'The update check failed: {error!r}'}))
-            return 0
+        # load() reports file problems; any other failure is a setup fault that summarize.py turns into a failed run.
+        return stop_hook()
     directory, modes, update, errors = check()
     if errors:
         print('INVALID - fix these errors and run this check again:')

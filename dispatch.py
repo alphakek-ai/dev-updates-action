@@ -72,8 +72,8 @@ def outline(markdown: str) -> tuple[list, list[list]]:
     inlines = [token.children for token in markdown_parser().parse(markdown) if token.type == "inline"]
     assert len(inlines) >= 2, "outline() needs an update that passed submit.validate()"
     title = [token for token in inlines[0] if token.type != "text" or token.content]
-    if title[0].type == "strong_open":  # "**Title**" paragraph; each channel applies its own bold
-        title = title[1:-1]
+    if title and title[0].type == "strong_open" and title[-1].type == "strong_close":
+        title = title[1:-1]  # "**Title**"; each channel applies its own bold
     return title, inlines[1:]
 
 
@@ -85,6 +85,8 @@ def _inline(tokens: list, text, code, strong: str, em: str, link) -> str:
             out.append(text(token.content))
         elif token.type == "code_inline":
             out.append(code(token.content))
+        elif token.type in ("softbreak", "hardbreak"):
+            out.append(" ")
         elif token.nesting == 1:
             opened.append((len(out), token))
         elif token.nesting == -1:
@@ -95,7 +97,7 @@ def _inline(tokens: list, text, code, strong: str, em: str, link) -> str:
                 # markdown-it percent-encodes hrefs except parentheses, which would end a markdown link early.
                 out.append(link(inner, str(opening.attrs["href"]).replace("(", "%28").replace(")", "%29")))
             else:
-                out.append({"strong_open": strong, "em_open": em}[opening.type].format(inner))
+                out.append({"strong_open": strong, "em_open": em}.get(opening.type, "{}").format(inner))
     return "".join(out)
 
 

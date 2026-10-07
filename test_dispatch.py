@@ -45,6 +45,11 @@ def test_channels_receive_exact_messages(kind, mode, markdown, expected):
     assert dispatch.render(kind, markdown, mode, 'owner/repo', '2', '3') == expected
 
 
+def test_unvalidated_inline_markup_degrades_to_text():
+    markdown = '**Update**\n\n- see ~~old~~ <b>x</b> ![img](https://e.x/i.png) line\n  wrapped\n'
+    assert dispatch.render('twitter', markdown, 'community', 'o/r', '1', '1').splitlines()[2] == '• see old x  line wrapped'
+
+
 def test_telegram_footer_keeps_repo_name_literal():
     text = dispatch.render('telegram', COMMUNITY, 'community', 'owner/_my-repo_', '2', '3')
     footer = dispatch.markdown_parser().parse(text)[-2].children

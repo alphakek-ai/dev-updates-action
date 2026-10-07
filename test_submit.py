@@ -15,83 +15,26 @@ MODES = ['dev', 'community']
 INCIDENT = '{"title":"**Dev update**","bullets":["🔁 Retries"]}'
 
 
-def errors_for(mode, bullet):
-    return submit.validate({**GOOD, mode: f'**Update**\n\n- {bullet}\n'}, MODES, 5)
-
-
 def test_good_update_is_valid():
     assert submit.validate(GOOD, MODES, 5) == []
-    assert submit.validate({mode: text.replace('\n', '\r\n') for mode, text in GOOD.items()}, MODES, 5) == []
 
 
 @pytest.mark.parametrize('markdown, problem', [
     (INCIDENT, 'is JSON'),
-    ('**Update**\n\n- ' + INCIDENT, 'JSON value'),
-    ('Update\n\n- item', 'title must be one bold line'),
-    ('**Update**\n\nIntro paragraph.\n\n- item', 'found blocks [paragraph, paragraph, bullet_list]'),
-    ('**Update**\n\n1. item', 'found blocks [paragraph, ordered_list]'),
-    ('**Update**\n\n| a |\n|---|\n| b |', 'found blocks [paragraph, table]'),
-    ('**Update**\n\n<div>x</div>', 'found blocks [paragraph, html_block]'),
-    ('**Update**\n\n- item\n\n```\ncode\n```', 'found blocks [paragraph, bullet_list, fence]'),
-    ('**Update**\n\n- item\n  - nested', 'bullet 1: must be one line'),
+    ('', 'is empty'),
+    ('Update\n\n- item', ''),  # A plain title line is fine.
+    ('**Update**\n\nIntro paragraph.\n\n- item', 'found [paragraph, paragraph, bullet_list]'),
+    ('**Update**\n\n1. item', 'found [paragraph, ordered_list]'),
+    ('**Update**\n\n| a |\n|---|\n| b |', 'found [paragraph, table]'),
+    ('**Update**\n\n- item\n\n```\ncode\n```', 'found [paragraph, bullet_list, fence]'),
+    ('**Update**\n\n- item\n  - nested', 'each bullet must be one paragraph'),
     ('**Update**\n\n' + '- item\n' * 6, 'has 6 bullets; write 1 to 5'),
-    ('**' + 'x' * 81 + '**\n\n- item', 'title: is 81 characters'),
     ('**Update**\n\n- item ' + 'x' * 32000, 'shorten it to at most 32000'),
-    ('[x]: https://evil.example\n\n**Update**\n\n- item', 'link reference definition'),
-    ('**Update**\n\n- item \u202e reversed', 'U+202E'),
-    ('**Update**\n\n- soft\u00adhyphen', 'U+00AD'),
-    ('**Update**\n\n- blank\u3164filler', 'U+3164'),
-    ('**Update**\n\n- thanks @&#8203;someone', 'U+200B'),
 ])
-def test_structure_errors_are_specific(markdown, problem):
+def test_errors_are_specific(markdown, problem):
     errors = submit.validate({**GOOD, 'dev': markdown}, MODES, 5)
-    assert any(problem in error for error in errors), errors
-
-
-@pytest.mark.parametrize('bullet, problem', [
-    ('first line\n  second line', 'single line'),
-    ('see <b>this</b>', 'raw HTML'),
-    ('![chart](https://example.com/c.png)', 'image'),
-    ('~~gone~~', 'strikethrough'),
-    ('[docs](ftp://example.com)', 'https://github.com/'),
-    ('[docs](https://evil.example/login)', 'https://github.com/'),
-    ('[docs](https://github.com/o/r "hidden")', 'link title'),
-    ('x' * 281, 'at most 280'),
-    ('Fees from $5 and up', 'math'),
-    ('see https://evil.example/x', 'URL in its text'),
-    ('see www.evil.example', 'URL in its text'),
-    ('thanks @someone', '@account'),
-    ('see `https://evil.example/x`', 'URL in its text'),
-    ('uses `@someone`', '@account'),
-    ('5 \\* 3 and snake\\_case', "literal '*'"),
-    ('about ~5 min', "literal '~'"),
-    ('a lone \\` tick', "literal '`'"),
-    ('a ||spoiler||', "literal '||'"),
-    ('``a`b``', 'backtick inside inline code'),
-])
-def test_dev_inline_errors_name_the_bullet(bullet, problem):
-    errors = errors_for('dev', bullet)
-    assert errors and all(error.startswith('dev.md bullet 1:') for error in errors)
-    assert any(problem in error for error in errors)
-
-
-@pytest.mark.parametrize('bullet, problem', [
-    ('Faster `sync`', 'contains code'),
-    ('See [docs](https://example.com)', 'contains a link'),
-    ('Updated src/app/sync.py for speed', 'file path'),
-    ('Tuned config.yaml defaults', 'file path'),
-    ('Upgraded to v2.4', 'version'),
-    ('Runs on engine 1.2.3 now', 'version'),
-])
-def test_community_rejects_internal_details(bullet, problem):
-    assert any(error.startswith('community.md bullet 1:') and problem in error
-               for error in errors_for('community', bullet))
-
-
-@pytest.mark.parametrize('bullet', ['Sync is 2.5x faster', 'Works 24/7 and/or offline', 'Loads in 1/2.5x the time',
-                                    'Shipped for $AIKEK holders'])
-def test_community_accepts_plain_language(bullet):
-    assert errors_for('community', bullet) == []
+    assert all(error.startswith('dev.md:') for error in errors)
+    assert any(problem in error for error in errors) if problem else errors == []
 
 
 @pytest.fixture

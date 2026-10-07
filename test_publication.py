@@ -239,7 +239,7 @@ def test_batch_retains_original_text_when_generation_changes(history):
     # 2026-10-06: the model's JSON reached every channel as message text.
     '{"title":"**Dev update**","bullets":["🔁 Retries"]}',
     '**Update**\n\nNo list here.',
-    '**Update**\n\n- <b>raw HTML</b>',
+    '**Update**\n\n```\ncode\n```',
 ])
 def test_invalid_update_publishes_nothing_and_keeps_journal(history, tmp_path, content):
     journal, commits = history

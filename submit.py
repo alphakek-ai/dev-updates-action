@@ -12,8 +12,8 @@ import shlex
 import sys
 
 MAX_BLOCKS = 4
-# Telegram's rich-message limit is 32768, leaving room for the footer; X fits text itself in its sender.
-LIMITS = {'telegram': 32000, 'discord': 2000, 'slack': 3000}
+# Below each channel's limit (Telegram 32768, Discord 2000, Slack 3000) to leave footer room; X fits text itself.
+LIMITS = {'telegram': 32000, 'discord': 1800, 'slack': 2800}
 COMMAND = f'{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))}'
 
 

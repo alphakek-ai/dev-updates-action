@@ -25,7 +25,7 @@ def test_validation(markdown, problem):
     assert errors == [] if problem is None else [error for error in errors if problem in error] == errors != []
 
 
-@pytest.mark.parametrize('types, limit', [(['telegram', 'discord', 'slack'], 2000), (['twitter'], 32000), ([None], 32000)])
+@pytest.mark.parametrize('types, limit', [(['telegram', 'discord', 'slack'], 1800), (['twitter'], 32000), ([None], 32000)])
 def test_limit_is_the_smallest_configured_channel_limit(types, limit):
     assert submit.max_length([{'type': kind} if kind else {} for kind in types]) == limit
 

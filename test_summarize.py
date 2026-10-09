@@ -26,7 +26,7 @@ def agent(update=UPDATE, stdout=SUCCESS, check=None):
 @pytest.fixture
 def generation(monkeypatch, tmp_path):
     for key, value in {'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true', 'BEFORE': 'before', 'AFTER': 'after',
-                       'DEV_RULES': 'technical',
+                       'TITLE_STYLE': 'short', 'MAX_BULLETS': '5', 'DEV_RULES': 'technical',
                        'COMMUNITY_RULES': 'user benefits', 'GH_TOKEN': 'must-not-leak',
                        'UPDATE_DIR': str(tmp_path / 'work'), 'CHANNELS': '- name: team\n  type: telegram\n',
                        'TELEGRAM_BOT_TOKEN': 'must-not-leak', 'CLAUDE_CODE_OAUTH_TOKEN': 'test-oauth'}.items():

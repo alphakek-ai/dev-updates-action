@@ -42,6 +42,8 @@ def generate():
         'It is the only shell command available.',
         f'The repository is checked out at {Path.cwd()}; read files there for context. The complete historical diff is '
         f'at {diff_file}. Read or search it when the excerpt is truncated.',
+        f'Title style: {os.environ["TITLE_STYLE"]}. Maximum bullets: {os.environ["MAX_BULLETS"]}.',
+        'Use a bold title and concise emoji-prefixed bullets.',
         *[f'{mode} summary instructions: {os.environ[mode.upper() + "_RULES"]}' for mode in modes],
         'Commit log (up to 100 entries):', bounded(log, 8192),
         'Changed-file overview:', bounded(stat, 8192), 'Diff:', bounded(diff, 65536),

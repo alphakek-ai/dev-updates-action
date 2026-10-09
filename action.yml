@@ -50,6 +50,14 @@ inputs:
       because one component was replaced, that is ONE bullet about the component,
       not five about the files. Call out anything that changes contracts:
       breaking changes, migrations, new/removed env vars, API shape changes.
+  title_style:
+    description: 'Style for the update title'
+    required: false
+    default: 'catchy, under 40 chars'
+  max_bullets:
+    description: 'Maximum number of bullet points per summary'
+    required: false
+    default: '5'
 
 runs:
   using: 'composite'
@@ -102,6 +110,8 @@ runs:
         AFTER: ${{ steps.range.outputs.after }}
         DEV_RULES: ${{ inputs.dev_rules }}
         COMMUNITY_RULES: ${{ inputs.community_rules }}
+        TITLE_STYLE: ${{ inputs.title_style }}
+        MAX_BULLETS: ${{ inputs.max_bullets }}
         UPDATE_DIR: ${{ runner.temp }}/dev-updates
         ACTION_PATH: ${{ github.action_path }}
       run: python3 "$ACTION_PATH/summarize.py"

@@ -36,7 +36,7 @@ def test_locked_install_ignores_consumer_policy_and_python_pin(consumer):
                    cwd=checkout, env=env, check=True, capture_output=True, text=True)
     python = runner / 'dev-updates-venv/bin/python'
     # Import the real publisher dependencies with the interpreter used for delivery.
-    subprocess.run([str(python), '-c', 'import markdown_it, tweepy, requests'],
+    subprocess.run([str(python), '-c', 'import tweepy, requests'],
                    cwd=checkout, env=env, check=True, capture_output=True, text=True)
     # Negative control: the very same lockfile is rejected without isolation.
     rejected = subprocess.run(

@@ -1,10 +1,9 @@
-"""Validate the generated <mode>.md updates: each exists, parses as markdown and fits the channel limits.
+"""Validate the generated <mode>.md updates: each exists and fits the channel limits.
 
 The summarizing agent may run this script at any time; Claude Code runs it with
 --hook on Stop and --guard before Bash; publication re-validates before sending.
 """
 
-import functools
 import json
 import os
 from pathlib import Path
@@ -15,14 +14,6 @@ MAX_BLOCKS = 4
 # Below each channel's limit (Telegram 32768, Discord 2000, Slack 3000) to leave footer room; X fits text itself.
 LIMITS = {'telegram': 32000, 'discord': 1800, 'slack': 2800}
 COMMAND = f'{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))}'
-
-
-@functools.cache
-def markdown_parser():
-    # Imported lazily: `publication.py prepare` runs before the locked dependencies are installed.
-    from markdown_it import MarkdownIt
-
-    return MarkdownIt("commonmark").enable(["table", "strikethrough"])
 
 
 def max_length(channels):
@@ -37,11 +28,6 @@ def validate(update, modes, limit):
         return [f'the update must have exactly these modes: {", ".join(modes)}']
     errors = []
     for mode, source in update.items():
-        try:
-            markdown_parser().parse(source)
-        except Exception as error:
-            errors.append(f'{mode}.md: is not valid markdown ({error})')
-            continue
         if len(source) > limit:
             errors.append(f'{mode}.md: is {len(source)} characters; shorten it to at most {limit}')
     return errors

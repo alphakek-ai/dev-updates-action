@@ -18,7 +18,6 @@ TOO_LONG = 'x' * 32001
     (DEV, None),
     ('Any *markdown*\n\n1. even\n2. ordered\n\n| a |\n|---|\n| b |', None),
     (TOO_LONG, 'shorten it to at most 32000'),
-    ({'title': 'Update'}, 'not valid markdown'),
 ])
 def test_validation(markdown, problem):
     errors = submit.validate({**GOOD, 'dev': markdown}, MODES, 32000)

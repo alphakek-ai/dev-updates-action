@@ -59,10 +59,7 @@ def deliver(journal, commits, sender):
 def test_prepare_cli_modes_match_publication(history, tmp_path, config, expected):
     journal, commits = history
     output = tmp_path / 'github-output'
-    # Preparation runs before the locked dependencies are installed.
-    without_dependencies = (f"import runpy, sys; sys.modules['markdown_it'] = None; sys.path.insert(0, {str(PUBLICATION_SCRIPT.parent)!r}); "
-                            f"sys.argv = ['publication.py', 'prepare']; runpy.run_path({str(PUBLICATION_SCRIPT)!r}, run_name='__main__')")
-    subprocess.run([sys.executable, '-c', without_dependencies], check=True,
+    subprocess.run([sys.executable, str(PUBLICATION_SCRIPT), 'prepare'], check=True,
                    capture_output=True, text=True,
                    env={**os.environ, 'CHANNELS': config, 'COOLDOWN': '',
                         'STATE_REF': 'refs/dev-updates/test', 'GITHUB_OUTPUT': str(output)})

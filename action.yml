@@ -104,7 +104,7 @@ runs:
         COMMUNITY_RULES: ${{ inputs.community_rules }}
         UPDATE_DIR: ${{ runner.temp }}/dev-updates
         ACTION_PATH: ${{ github.action_path }}
-      run: '"$RUNNER_TEMP/dev-updates-venv/bin/python" "$ACTION_PATH/summarize.py"'
+      run: python3 "$ACTION_PATH/summarize.py"
 
     - name: Publish journaled batch
       if: steps.range.outputs.skip != 'true'

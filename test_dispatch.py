@@ -88,17 +88,16 @@ class TestParseChannels:
           chat_id: "@mychannel"
           mode: public
 
-        - name: discord-dev
-          type: discord
-          webhook_url_env: DISCORD_WEBHOOK
-          mode: private
+        - name: x
+          type: twitter
+          mode: public
         """
         channels = parse_channels(yaml)
         assert len(channels) == 3
         assert channels[0]["name"] == "team"
         assert channels[1]["name"] == "public"
         assert channels[1]["chat_id"] == "@mychannel"
-        assert channels[2]["type"] == "discord"
+        assert channels[2]["type"] == "twitter"
 
     def test_empty_input(self):
         assert parse_channels("") == []

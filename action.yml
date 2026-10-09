@@ -105,7 +105,6 @@ runs:
         GITHUB_TOKEN: ''
         HAS_DEV: ${{ steps.range.outputs.has_dev }}
         HAS_COMMUNITY: ${{ steps.range.outputs.has_community }}
-        CHANNELS: ${{ inputs.channels }}
         BEFORE: ${{ steps.range.outputs.before }}
         AFTER: ${{ steps.range.outputs.after }}
         DEV_RULES: ${{ inputs.dev_rules }}

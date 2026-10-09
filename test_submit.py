@@ -11,27 +11,22 @@ DEV = ('**Retries without duplicates**\n\n'
 COMMUNITY = '# More reliable updates\n\n- 📣 Announcements **no longer** arrive twice\n'
 GOOD = {'dev': DEV, 'community': COMMUNITY}
 MODES = ['dev', 'community']
-TOO_LONG = 'x' * 32001
+TOO_LONG = 'x' * 1001
 
 
 @pytest.mark.parametrize('markdown, problem', [
     (DEV, None),
     ('Any *markdown*\n\n1. even\n2. ordered\n\n| a |\n|---|\n| b |', None),
-    (TOO_LONG, 'shorten it to at most 32000'),
+    (TOO_LONG, 'shorten it to at most 1000'),
 ])
 def test_validation(markdown, problem):
-    errors = submit.validate({**GOOD, 'dev': markdown}, MODES, 32000)
+    errors = submit.validate({**GOOD, 'dev': markdown}, MODES)
     assert errors == [] if problem is None else [error for error in errors if problem in error] == errors != []
-
-
-@pytest.mark.parametrize('types, limit', [(['telegram', 'discord', 'slack'], 1800), (['twitter'], 32000), ([None], 32000)])
-def test_limit_is_the_smallest_configured_channel_limit(types, limit):
-    assert submit.max_length([{'type': kind} if kind else {} for kind in types]) == limit
 
 
 @pytest.fixture
 def update_dir(tmp_path, monkeypatch):
-    for key, value in {'UPDATE_DIR': str(tmp_path), 'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true', 'UPDATE_LIMIT': '32000'}.items():
+    for key, value in {'UPDATE_DIR': str(tmp_path), 'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true'}.items():
         monkeypatch.setenv(key, value)
     return tmp_path
 
@@ -52,7 +47,7 @@ def hook(monkeypatch, capsys):
 def test_hook_blocks_invalid_update_then_allows_once_fixed(update_dir, monkeypatch, capsys):
     write(update_dir, {**GOOD, 'dev': TOO_LONG})
     decision = hook(monkeypatch, capsys)
-    assert decision['decision'] == 'block' and 'dev.md: is 32001 characters' in decision['reason']
+    assert decision['decision'] == 'block' and 'dev.md: is 1001 characters' in decision['reason']
     write(update_dir, GOOD)
     assert hook(monkeypatch, capsys) is None
 

@@ -233,7 +233,7 @@ def test_batch_retains_original_text_when_generation_changes(history):
 
 
 @pytest.mark.parametrize('content', [
-    'x' * 32001,
+    'x' * 1001,
     None,  # Missing file
 ])
 def test_invalid_update_publishes_nothing_and_keeps_journal(history, tmp_path, content):

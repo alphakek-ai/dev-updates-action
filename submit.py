@@ -1,4 +1,4 @@
-"""Validate the generated <mode>.md updates: each exists and fits the channel limits.
+"""Validate the generated <mode>.md updates: each exists and is at most MAX_CHARS characters.
 
 The summarizing agent may run this script at any time; Claude Code runs it with
 --hook on Stop and --guard before Bash; publication re-validates before sending.
@@ -11,29 +11,22 @@ import shlex
 import sys
 
 MAX_BLOCKS = 4
-# Below each channel's limit (Telegram 32768, Discord 2000, Slack 3000) to leave footer room; X fits text itself.
-LIMITS = {'telegram': 32000, 'discord': 1800, 'slack': 2800}
+MAX_CHARS = 1000
 COMMAND = f'{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))}'
 
 
-def max_length(channels):
-    """The smallest limit among the configured channels."""
-    return min((LIMITS[ch.get('type', 'telegram')] for ch in channels if ch.get('type', 'telegram') in LIMITS),
-               default=LIMITS['telegram'])
-
-
-def validate(update, modes, limit):
+def validate(update, modes):
     """Errors for an update mapping each active mode to its markdown; empty means it can be published."""
     if not isinstance(update, dict) or set(update) != set(modes):
         return [f'the update must have exactly these modes: {", ".join(modes)}']
     errors = []
     for mode, source in update.items():
-        if len(source) > limit:
-            errors.append(f'{mode}.md: is {len(source)} characters; shorten it to at most {limit}')
+        if len(source) > MAX_CHARS:
+            errors.append(f'{mode}.md: is {len(source)} characters; shorten it to at most {MAX_CHARS}')
     return errors
 
 
-def load(directory, modes, limit):
+def load(directory, modes):
     """Read and validate <mode>.md files; returns (update, errors)."""
     update, errors = {}, []
     for mode in modes:
@@ -43,13 +36,13 @@ def load(directory, modes, limit):
             errors.append(f'{Path(directory) / f"{mode}.md"}: does not exist; write it with the Write tool')
         except (OSError, UnicodeDecodeError) as error:
             errors.append(f'{Path(directory) / f"{mode}.md"}: cannot be read ({error}); rewrite it')
-    return update, errors or validate(update, modes, limit)
+    return update, errors or validate(update, modes)
 
 
 def check():
     directory = Path(os.environ['UPDATE_DIR'])
     modes = [mode for mode in ('dev', 'community') if os.environ.get('HAS_' + mode.upper()) == 'true']
-    return directory, modes, *load(directory, modes, int(os.environ['UPDATE_LIMIT']))
+    return directory, modes, *load(directory, modes)
 
 
 def stop_hook():

@@ -4,7 +4,7 @@ Reads channel config from CHANNELS env var (YAML),
 loads the appropriate summary (dev/community),
 and sends to each channel via its native API.
 
-Supported channel types: telegram, discord, slack, twitter.
+Supported channel types: telegram, twitter.
 """
 
 import json
@@ -86,40 +86,6 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
         raise RuntimeError('Telegram did not confirm a message ID')
 
 
-def send_discord(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
-    webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
-    if not webhook_url:
-        raise DeliveryNotAttempted("No webhook URL configured")
-
-    text = f"{content}\n\n[{repo_name}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)"
-    payload = {"content": text[:2000]}
-
-    req = urllib.request.Request(
-        webhook_url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30):
-        pass
-
-
-def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
-    webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
-    if not webhook_url:
-        raise DeliveryNotAttempted("No webhook URL configured")
-
-    text = f"{content}\n\n<https://github.com/{repo}|{repo_name}> · {commits} commit(s) · {files} file(s)"
-    payload = {"text": text[:3000]}
-
-    req = urllib.request.Request(
-        webhook_url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30):
-        pass
-
-
 def _limit_cashtags(text: str) -> str:
     """Keep the first cashtag, strip '$' from the rest (X allows only one). Prices
     ('$100', '$5k') and mid-word '$' are untouched — a cashtag is '$'+letter at a word
@@ -194,7 +160,5 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
 
 DISPATCHERS = {
     "telegram": send_telegram,
-    "discord": send_discord,
-    "slack": send_slack,
     "twitter": send_twitter,
 }

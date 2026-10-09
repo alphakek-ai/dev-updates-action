@@ -2,7 +2,7 @@
 
 AI-powered dev update notifications with privacy modes and multi-channel dispatch.
 
-Uses [Claude Code](https://claude.ai/claude-code) to read your git diff and generate human-readable summaries, then dispatches them to any combination of Telegram, Discord, Slack, and Twitter/X channels.
+Uses [Claude Code](https://claude.ai/claude-code) to read your git diff and generate human-readable summaries, then dispatches them to Telegram and Twitter/X channels.
 
 ## Features
 
@@ -64,7 +64,7 @@ Each channel is a YAML block with:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | Yes | Display name for logging |
-| `type` | Yes | `telegram`, `discord`, `slack`, or `twitter` |
+| `type` | Yes | `telegram` or `twitter` |
 | `mode` | Yes | `dev` (technical details) or `community` (user-facing) |
 | `required` | No | `true` (default) or `false`. A `required: false` channel may fail without failing the run — use for flaky external channels (e.g. Twitter/X) so one outage doesn't red the build or trigger duplicate re-posts on the channels that succeeded. Ambiguous failures on required channels need operator reconciliation. Optional failures are not retried for that batch. The run still fails if a required channel fails, or if *no* channel delivers. |
 
@@ -75,20 +75,6 @@ Each channel is a YAML block with:
 | `chat_id` | Yes | Chat/channel ID (e.g., `"-100123456789"` or `"@channelname"`) |
 | `thread_id` | No | Topic/thread ID for supergroups |
 | `bot_token_env` | No | Env var name for bot token (default: `TELEGRAM_BOT_TOKEN`) |
-
-### Discord
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `webhook_url` | Yes* | Discord webhook URL |
-| `webhook_url_env` | Yes* | Or: env var name containing the webhook URL |
-
-### Slack
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `webhook_url` | Yes* | Slack incoming webhook URL |
-| `webhook_url_env` | Yes* | Or: env var name containing the webhook URL |
 
 ### Twitter / X
 
@@ -126,7 +112,7 @@ You can customize the rules:
 
 ## Generation and validation
 
-Claude Code (pinned CLI) writes one GitHub-flavoured markdown file per active mode (`dev.md`, `community.md`). The agent can read the repository and diff, write only those files, and run only `submit.py`, which checks that each file exists and fits the smallest limit among the configured channels (Telegram 32000, Discord 1800, Slack 2800, leaving room for the footer; X fits text itself). A Stop hook sends the agent back to fix the files while they are invalid (at most 4 times). Publication validates again and fails closed: nothing is sent, the run fails, and the journal is unchanged, so the next run retries.
+Claude Code (pinned CLI) writes one GitHub-flavoured markdown file per active mode (`dev.md`, `community.md`). The agent can read the repository and diff, write only those files, and run only `submit.py`, which checks that each file exists and is at most 1000 characters. A Stop hook sends the agent back to fix the files while they are invalid (at most 4 times). Publication validates again and fails closed: nothing is sent, the run fails, and the journal is unchanged, so the next run retries.
 
 Telegram receives the markdown natively through `sendRichMessage`, with the footer appended. If Telegram rejects it, that delivery fails and stays retryable.
 

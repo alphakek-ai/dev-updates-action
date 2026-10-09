@@ -118,10 +118,10 @@ def publish(journal, channels, before, after, update_dir, repo, now, senders=DIS
     state = journal.load()
     fingerprint = channel_fingerprint(channels)
     batch = state['batch']
-    modes = sorted({_normalize_mode(ch.get('mode', 'dev')) for ch in channels})
     if not batch:
         if state['last_sha'] != before or not ancestor(before, after) or before == after:
             raise RuntimeError('Checkpoint changed after preparation; refusing stale publication')
+        modes = {_normalize_mode(ch.get('mode', 'dev')) for ch in channels}
         summaries, errors = submit.load(update_dir, modes)
         if errors:
             raise ValueError('Refusing to publish an invalid update:\n' + '\n'.join(errors))
@@ -134,10 +134,6 @@ def publish(journal, channels, before, after, update_dir, repo, now, senders=DIS
         journal.save()
     if (batch['before'], batch['after'], batch['channels']) != (before, after, fingerprint):
         raise RuntimeError('Outstanding publication does not match prepared range/channels')
-    errors = submit.validate(batch['summaries'], modes)  # Frozen batches from other formats are not sent.
-    if errors and 'ready' in batch['deliveries'].values():
-        raise ValueError('Outstanding batch holds an invalid update; abandon its channels with resolve:\n'
-                         + '\n'.join(errors))
     for ch in channels:
         name = ch['name']
         status = batch['deliveries'][name]
@@ -158,7 +154,7 @@ def publish(journal, channels, before, after, update_dir, repo, now, senders=DIS
         batch['deliveries'][name] = 'pending'
         journal.save()  # Must succeed before any external delivery.
         try:
-            sender(ch, content, repo, batch['commits'], batch['files'])
+            sender(ch, content, repo, repo.split('/')[-1], batch['commits'], batch['files'])
         except Exception as error:
             # Only definitive rejection permits a retry. Timeouts/5xx may follow
             # successful delivery; leave the durable pending marker untouched.

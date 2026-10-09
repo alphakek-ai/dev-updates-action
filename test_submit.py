@@ -27,8 +27,7 @@ def test_validation(markdown, problem):
 
 @pytest.fixture
 def update_dir(tmp_path, monkeypatch):
-    for key, value in {'UPDATE_DIR': str(tmp_path), 'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true',
-                       'GITHUB_REPOSITORY': 'owner/repo', 'COMMIT_COUNT': '2', 'FILE_COUNT': '3'}.items():
+    for key, value in {'UPDATE_DIR': str(tmp_path), 'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true'}.items():
         monkeypatch.setenv(key, value)
     return tmp_path
 
@@ -58,16 +57,14 @@ def test_hook_stops_blocking_after_the_cap(update_dir, monkeypatch, capsys):
     assert [hook(monkeypatch, capsys) is not None for _ in range(submit.MAX_BLOCKS + 1)] == [True] * submit.MAX_BLOCKS + [False]
 
 
-def test_check_prints_errors_or_exact_messages(update_dir, monkeypatch, capsys):
+def test_check_prints_errors_or_valid(update_dir, monkeypatch, capsys):
     monkeypatch.setattr('sys.argv', ['submit.py'])
     write(update_dir, {'dev': DEV})
     assert submit.main() == 1
     assert 'community.md: does not exist' in capsys.readouterr().out
     write(update_dir, GOOD)
     assert submit.main() == 0
-    output = capsys.readouterr().out
-    assert f'===== telegram (dev) =====\n{DEV.strip()}\n\n[repo · 2 commit(s) · 3 file(s)](https://github.com/owner/repo)' in output
-    assert '===== twitter (community) =====\nMore reliable updates\n\n• 📣 Announcements no longer arrive twice' in output
+    assert capsys.readouterr().out == 'VALID\n'
 
 
 def guard(monkeypatch, stdin):

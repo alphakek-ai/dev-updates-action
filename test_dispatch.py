@@ -1,4 +1,4 @@
-"""Tests for dispatch.py — channel parsing and rendering."""
+"""Tests for dispatch.py — channel parsing and Telegram delivery."""
 
 import io
 import json
@@ -13,80 +13,6 @@ from dispatch import (
     parse_channels,
 )
 
-DEV = ('**Q&A \\<fixes\\>**\n\n'
-       '- 🔧 `parse_channels()` keeps *quoted* \\<names\\> & ids ([PR](https://github.com/owner/repo/pull/1#(x)))\n'
-       '- 🚀 Ships $AIKEK and **$KEK**\n')
-COMMUNITY = '# Smoother chats\n\n- 💬 Replies arrive \\[faster\\] & more\\_reliably\n'
-
-
-@pytest.mark.parametrize('kind, mode, markdown, expected', [
-    ('telegram', 'dev', DEV, DEV.strip() + '\n\n[repo · 2 commit(s) · 3 file(s)](https://github.com/owner/repo)'),
-    ('telegram', 'community', COMMUNITY, COMMUNITY.strip() + '\n\nrepo · 2 commit(s) · 3 file(s)'),
-    ('discord', 'dev', DEV,
-     '**Q&A \\<fixes\\>**\n\n'
-     '- 🔧 `parse_channels()` keeps *quoted* \\<names\\> & ids \\([PR](https://github.com/owner/repo/pull/1#%28x%29)\\)\n'
-     '- 🚀 Ships $AIKEK and **$KEK**\n\n'
-     '[repo](https://github.com/owner/repo) · 2 commit(s) · 3 file(s)'),
-    ('discord', 'community', COMMUNITY,
-     '**Smoother chats**\n\n- 💬 Replies arrive \\[faster\\] & more\\_reliably\n\n'
-     '[repo](https://github.com/owner/repo) · 2 commit(s) · 3 file(s)'),
-    ('slack', 'dev', DEV,
-     '*Q&amp;A &lt;fixes&gt;*\n\n'
-     '• 🔧 `parse_channels()` keeps _quoted_ &lt;names&gt; &amp; ids (<https://github.com/owner/repo/pull/1#%28x%29|PR>)\n'
-     '• 🚀 Ships $AIKEK and *$KEK*\n\n'
-     '<https://github.com/owner/repo|repo> · 2 commit(s) · 3 file(s)'),
-    ('twitter', 'dev', DEV,
-     'Q&A <fixes>\n\n• 🔧 parse_channels() keeps quoted <names> & ids (PR (https://github.com/owner/repo/pull/1#%28x%29))\n'
-     '• 🚀 Ships $AIKEK and KEK\n\nrepo · 2 commit(s) · 3 file(s)\n\nhttps://github.com/owner/repo'),
-    ('twitter', 'community', COMMUNITY,
-     'Smoother chats\n\n• 💬 Replies arrive [faster] & more_reliably\n\nrepo · 2 commit(s) · 3 file(s)'),
-])
-def test_channels_receive_exact_messages(kind, mode, markdown, expected):
-    assert dispatch.render(kind, markdown, mode, 'owner/repo', '2', '3') == expected
-
-
-def test_any_markdown_renders_line_by_line():
-    markdown = ('## Notes\n\nIntro with ~~old~~ <b>x</b> ![a chart](https://e.x/c.png) text\nwrapped.\n\n1. first\n   - nested\n2. second\n\n'
-                '> quoted\n\n```\ncode()\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n')
-    assert dispatch.render('discord', markdown, 'community', 'o/r', '1', '1') == (
-        '**Notes**\n\nIntro with ~~old~~ x a chart text wrapped.\n\n1. first\n  - nested\n2. second\n\n'
-        '> quoted\n\n```\ncode()\n```\n\na | b\n1 | 2\n\n[r](https://github.com/o/r) · 1 commit(s) · 1 file(s)')
-
-
-def test_telegram_footer_keeps_repo_name_literal():
-    text = dispatch.render('telegram', COMMUNITY, 'community', 'owner/_my-repo_', '2', '3')
-    footer = dispatch.markdown_parser().parse(text)[-2].children
-    assert [(token.type, token.content) for token in footer] == [('text', '_my-repo_ · 2 commit(s) · 3 file(s)')]
-
-
-@pytest.mark.parametrize('kind, limit', [('twitter', 60), ('discord', 0)])
-def test_long_messages_drop_trailing_lines_and_keep_footer(kind, limit):
-    markdown = '**Update**\n\n- one\n- ' + 'x' * 2000 + '\n- three\n'
-    text = dispatch.render(kind, markdown, 'community', 'owner/repo', '2', '3', limit)
-    assert 'one' in text and 'three' not in text and text.endswith('3 file(s)')
-
-
-def test_single_overlong_line_is_truncated_not_dropped():
-    text = dispatch.render('twitter', 'x' * 500, 'community', 'owner/repo', '2', '3', 280)
-    assert len(text) <= 280 and text.startswith('xxx') and '…\n\nrepo · 2 commit(s)' in text
-    text = dispatch.render('discord', 'word ' * 500 + '\\- end', 'community', 'owner/repo', '2', '3')
-    assert len(text) <= 2000 and text.split('…')[0].endswith('word')
-
-
-def test_first_line_alone_is_never_posted():
-    text = dispatch.render('twitter', '**Title**\n\n- ' + 'word ' * 60, 'community', 'owner/repo', '2', '3', 280)
-    assert len(text) <= 280 and text.startswith('Title\n\n• word word') and '…' in text
-
-
-def test_code_with_backticks_keeps_its_fence():
-    text = dispatch.render('discord', 'Run ``a`b`` now', 'community', 'o/r', '1', '1')
-    assert text.startswith('Run `` a`b `` now')
-
-
-def test_slack_escapes_link_targets():
-    text = dispatch.render('slack', '**Update**\n\n- [diff](https://github.com/o/r/compare?a=1&b=2)\n', 'dev', 'o/r', '1', '1')
-    assert '<https://github.com/o/r/compare?a=1&amp;b=2|diff>' in text
-
 
 @pytest.mark.parametrize('body', [
     {'ok': False, 'error_code': 429},
@@ -97,7 +23,7 @@ def test_telegram_requires_confirmed_message_id(monkeypatch, body):
     monkeypatch.setattr(dispatch.urllib.request, 'urlopen',
                         lambda req, timeout: io.BytesIO(json.dumps(body).encode()))
     with pytest.raises(RuntimeError, match='confirm'):
-        dispatch.send_telegram({'chat_id': 'test'}, COMMUNITY, 'owner/repo', '1', '1')
+        dispatch.send_telegram({'chat_id': 'test'}, 'Update', 'owner/repo', 'repo', '1', '1')
 
 
 def test_telegram_success_consumes_acknowledgement(monkeypatch):
@@ -107,24 +33,11 @@ def test_telegram_success_consumes_acknowledgement(monkeypatch):
         requests.append((json.loads(req.data), timeout))
         return io.BytesIO(b'{"ok":true,"result":{"message_id":123}}')
     monkeypatch.setattr(dispatch.urllib.request, 'urlopen', post)
-    dispatch.send_telegram({'chat_id': 'test'}, COMMUNITY, 'owner/repo', '1', '1')
+    dispatch.send_telegram({'chat_id': 'test'}, 'Update', 'owner/repo', 'repo', '1', '1')
     assert requests[0][0]['chat_id'] == 'test'
-    assert requests[0][0]['rich_message'] == {'markdown': dispatch.render('telegram', COMMUNITY, 'dev', 'owner/repo', '1', '1')}
+    assert requests[0][0]['rich_message'] == {
+        'markdown': 'Update\n\n[repo · 1 commit(s) · 1 file(s)](https://github.com/owner/repo)'}
     assert requests[0][1] == 30
-
-
-def test_telegram_rejection_fails_loudly_without_fallback(monkeypatch, capsys):
-    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
-    requests = []
-    def reject(req, timeout):
-        requests.append(req.full_url)
-        raise dispatch.urllib.error.HTTPError(req.full_url, 400, 'Bad Request', {},
-                                              io.BytesIO(b'{"ok":false,"description":"RICH_MESSAGE_MARKDOWN_INVALID"}'))
-    monkeypatch.setattr(dispatch.urllib.request, 'urlopen', reject)
-    with pytest.raises(dispatch.urllib.error.HTTPError):
-        dispatch.send_telegram({'chat_id': 'test'}, COMMUNITY, 'owner/repo', '1', '1')
-    assert requests == ['https://api.telegram.org/bottest-token/sendRichMessage']
-    assert 'RICH_MESSAGE_MARKDOWN_INVALID' in capsys.readouterr().out
 
 
 class TestLimitCashtags:

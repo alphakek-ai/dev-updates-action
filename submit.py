@@ -1,20 +1,27 @@
-"""Validate the generated <mode>.md updates and preview the exact message per channel.
+"""Validate the generated <mode>.md updates: each exists, parses as markdown and fits Telegram's limit.
 
 The summarizing agent may run this script at any time; Claude Code runs it with
 --hook on Stop and --guard before Bash; publication re-validates before sending.
 """
 
+import functools
 import json
 import os
 from pathlib import Path
 import shlex
 import sys
 
-from dispatch import DIALECTS, markdown_parser, render
-
 MAX_BLOCKS = 4
 SOURCE_MAX = 32000  # Telegram's rich-message limit is 32768; the rest is left for the footer.
 COMMAND = f'{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))}'
+
+
+@functools.cache
+def markdown_parser():
+    # Imported lazily: `publication.py prepare` runs before the locked dependencies are installed.
+    from markdown_it import MarkdownIt
+
+    return MarkdownIt("commonmark").enable(["table", "strikethrough"])
 
 
 def validate(update, modes):
@@ -79,17 +86,12 @@ def main():
         sys.stdin.read()
         # load() reports file problems; any other failure is a setup fault that summarize.py turns into a failed run.
         return stop_hook()
-    directory, modes, update, errors = check()
+    _, _, _, errors = check()
     if errors:
         print('INVALID - fix these errors and run this check again:')
         print('\n'.join(f'- {error}' for error in errors))
         return 1
-    repo = os.environ.get('GITHUB_REPOSITORY', 'owner/repo')
-    commits, files = os.environ.get('COMMIT_COUNT', '?'), os.environ.get('FILE_COUNT', '?')
-    print('VALID - these are the exact messages that will be published:')
-    for mode in modes:
-        for channel in ['telegram', *DIALECTS]:
-            print(f'\n===== {channel} ({mode}) =====\n{render(channel, update[mode], mode, repo, commits, files)}')
+    print('VALID')
     return 0
 
 

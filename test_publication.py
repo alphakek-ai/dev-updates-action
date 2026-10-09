@@ -252,18 +252,6 @@ def test_invalid_update_publishes_nothing_and_keeps_journal(history, tmp_path, c
     assert journal.revision == revision
 
 
-def test_frozen_batch_in_another_format_is_not_sent(history):
-    journal, commits = history
-    def reject(ch, *args):
-        raise urllib.error.HTTPError('redacted', 429, '', {}, None)
-    with pytest.raises(RuntimeError):
-        deliver(journal, commits, reject)
-    journal.state['batch']['summaries'] = {'dev': {'title': 'Update', 'bullets': ['x']}, 'community': 'Update'}
-    journal.save()
-    with pytest.raises(ValueError, match='invalid update'):
-        deliver(journal, commits, lambda *args: pytest.fail('Frozen batch sent'))
-
-
 def test_optional_definitive_rejection_does_not_block_completed_batch(history):
     journal, commits = history
     channels = [CHANNELS[0], dict(CHANNELS[1], required=False)]

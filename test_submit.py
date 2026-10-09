@@ -18,6 +18,7 @@ TOO_LONG = 'x' * 1001
     (DEV, None),
     ('Any *markdown*\n\n1. even\n2. ordered\n\n| a |\n|---|\n| b |', None),
     (TOO_LONG, 'shorten it to at most 1000'),
+    (' \n', 'is empty'),
 ])
 def test_validation(markdown, problem):
     errors = submit.validate({**GOOD, 'dev': markdown}, MODES)

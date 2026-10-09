@@ -1,4 +1,4 @@
-"""Validate the generated <mode>.md updates: each exists and is at most MAX_CHARS characters.
+"""Validate the generated <mode>.md updates: each exists, is not empty and is at most MAX_CHARS characters.
 
 The summarizing agent may run this script at any time; Claude Code runs it with
 --hook on Stop and --guard before Bash; publication re-validates before sending.
@@ -21,7 +21,9 @@ def validate(update, modes):
         return [f'the update must have exactly these modes: {", ".join(modes)}']
     errors = []
     for mode, source in update.items():
-        if len(source) > MAX_CHARS:
+        if not source.strip():
+            errors.append(f'{mode}.md: is empty; write the update')
+        elif len(source) > MAX_CHARS:
             errors.append(f'{mode}.md: is {len(source)} characters; shorten it to at most {MAX_CHARS}')
     return errors
 
@@ -42,11 +44,11 @@ def load(directory, modes):
 def check():
     directory = Path(os.environ['UPDATE_DIR'])
     modes = [mode for mode in ('dev', 'community') if os.environ.get('HAS_' + mode.upper()) == 'true']
-    return directory, modes, *load(directory, modes)
+    return directory, load(directory, modes)[1]
 
 
 def stop_hook():
-    directory, _, _, errors = check()
+    directory, errors = check()
     attempts = directory / 'stop-attempts'
     blocked = int(attempts.read_text()) if attempts.exists() else 0
     # Publication re-validates, so a capped run still cannot publish an invalid update.
@@ -72,7 +74,7 @@ def main():
         sys.stdin.read()
         # load() reports file problems; any other failure is a setup fault that summarize.py turns into a failed run.
         return stop_hook()
-    _, _, _, errors = check()
+    _, errors = check()
     if errors:
         print('INVALID - fix these errors and run this check again:')
         print('\n'.join(f'- {error}' for error in errors))

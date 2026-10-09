@@ -126,7 +126,7 @@ You can customize the rules:
 
 ## Generation and validation
 
-Claude Code (pinned CLI; `model` input, default `claude-opus-5`) writes one GitHub-flavoured markdown file per active mode (`dev.md`, `community.md`). The agent can read the repository and diff, write only those files, and run only `submit.py`, which checks that each file exists, parses as markdown, and is at most 32000 characters (Telegram's rich-message limit). A Stop hook sends the agent back to fix the files while they are invalid (at most 4 times). Publication validates again and fails closed: nothing is sent, the run fails, and the journal is unchanged, so the next run retries.
+Claude Code (pinned CLI) writes one GitHub-flavoured markdown file per active mode (`dev.md`, `community.md`). The agent can read the repository and diff, write only those files, and run only `submit.py`, which checks that each file exists, parses as markdown, and is at most 32000 characters (Telegram's rich-message limit). A Stop hook sends the agent back to fix the files while they are invalid (at most 4 times). Publication validates again and fails closed: nothing is sent, the run fails, and the journal is unchanged, so the next run retries.
 
 Telegram receives the markdown natively through `sendRichMessage`, with the footer appended. If Telegram rejects it, that delivery fails and stays retryable.
 

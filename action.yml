@@ -50,10 +50,6 @@ inputs:
       because one component was replaced, that is ONE bullet about the component,
       not five about the files. Call out anything that changes contracts:
       breaking changes, migrations, new/removed env vars, API shape changes.
-  model:
-    description: 'Claude model that writes the summaries (passed to Claude Code --model)'
-    required: false
-    default: 'claude-opus-5'
 
 runs:
   using: 'composite'
@@ -105,7 +101,6 @@ runs:
         AFTER: ${{ steps.range.outputs.after }}
         DEV_RULES: ${{ inputs.dev_rules }}
         COMMUNITY_RULES: ${{ inputs.community_rules }}
-        MODEL: ${{ inputs.model }}
         UPDATE_DIR: ${{ runner.temp }}/dev-updates
         ACTION_PATH: ${{ github.action_path }}
       run: '"$RUNNER_TEMP/dev-updates-venv/bin/python" "$ACTION_PATH/summarize.py"'

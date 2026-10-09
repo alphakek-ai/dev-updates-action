@@ -55,9 +55,8 @@ def generate():
     env = {key: value for key, value in os.environ.items()
            if key in ('PATH', 'HOME', 'LANG', 'TMPDIR', 'CI', 'CLAUDE_CODE_OAUTH_TOKEN',
                       'UPDATE_DIR', 'HAS_DEV', 'HAS_COMMUNITY')}
-    model = os.environ['MODEL']
     result = subprocess.run([
-        'npx', '-y', '@anthropic-ai/claude-code@2.1.270', '-p', '--model', model,
+        'npx', '-y', '@anthropic-ai/claude-code@2.1.270', '-p',
         '--setting-sources', '', '--settings', json.dumps(settings),
         '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
         '--tools', 'Read,Grep,Glob,Write,Bash', '--permission-mode', 'dontAsk', '--add-dir', str(Path.cwd()),
@@ -69,7 +68,6 @@ def generate():
         response = response[-1] if response else None
     if not isinstance(response, dict) or response.get('type') != 'result':
         raise ValueError('Invalid generation response')
-    print(f'Model requested: {model}; used: {", ".join(response.get("modelUsage") or {}) or "unknown"}')
     if response.get('is_error') or response.get('subtype') != 'success':
         raise RuntimeError('Summary generation failed')
     update, errors = submit.load(workdir, modes)

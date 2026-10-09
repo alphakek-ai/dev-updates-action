@@ -27,7 +27,7 @@ def agent(update=UPDATE, stdout=SUCCESS, check=None):
 def generation(monkeypatch, tmp_path):
     for key, value in {'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true', 'BEFORE': 'before', 'AFTER': 'after',
                        'DEV_RULES': 'technical',
-                       'COMMUNITY_RULES': 'user benefits', 'GH_TOKEN': 'must-not-leak', 'MODEL': 'claude-opus-5',
+                       'COMMUNITY_RULES': 'user benefits', 'GH_TOKEN': 'must-not-leak',
                        'UPDATE_DIR': str(tmp_path / 'work'),
                        'TELEGRAM_BOT_TOKEN': 'must-not-leak', 'CLAUDE_CODE_OAUTH_TOKEN': 'test-oauth'}.items():
         monkeypatch.setenv(key, value)
@@ -41,7 +41,7 @@ def test_agent_is_locked_down_to_reading_writing_update_and_checking(generation,
         script = f"{sys.executable} {Path(summarize.__file__).with_name('submit.py').resolve()}"
         settings = json.loads(option('--settings'))
         assert '--safe-mode' not in command and option('--setting-sources') == ''
-        assert option('--model') == 'claude-opus-5' and option('--permission-mode') == 'dontAsk'
+        assert option('--permission-mode') == 'dontAsk'
         assert option('--tools') == 'Read,Grep,Glob,Write,Bash'
         assert option('--mcp-config') == '{"mcpServers":{}}' and '--strict-mcp-config' in command
         assert settings['permissions']['allow'] == [

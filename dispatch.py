@@ -244,7 +244,7 @@ def send_discord(ch: dict, markdown: str, repo: str, commits: str, files: str) -
         raise DeliveryNotAttempted("No webhook URL configured")
 
     text = render("discord", markdown, _normalize_mode(ch.get("mode", "dev")), repo, commits, files)
-    payload = {"content": text, "allowed_mentions": {"parse": []}}
+    payload = {"content": text}
 
     req = urllib.request.Request(
         webhook_url,

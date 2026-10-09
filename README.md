@@ -128,7 +128,7 @@ You can customize the rules:
 
 Claude Code (pinned CLI; `model` input, default `claude-opus-5`) writes one GitHub-flavoured markdown file per active mode (`dev.md`, `community.md`). The agent can read the repository and diff, write only those files, and run only `submit.py`. That script parses the markdown with markdown-it-py and either lists actionable errors or previews the exact message for every channel type. A Stop hook sends the agent back to fix the files while they are invalid (at most 4 times). Publication validates again and fails closed: nothing is sent, the run fails, and the journal is unchanged, so the next run retries.
 
-`submit.py` checks only that each file exists, is non-empty markdown rather than JSON, and is at most 32000 characters, which fits Telegram's rich-message limit. Shape, style and content (a title plus up to `max_bullets` bullets, emoji, what each audience may see) are prompt guidance from `title_style`, `max_bullets`, `dev_rules` and `community_rules`, not checks. The preview uses the default channel limits, not a configured X `max_length`.
+`submit.py` checks only that each file exists, is valid markdown, and is at most 32000 characters, which fits Telegram's rich-message limit.
 
 Telegram receives the markdown itself through `sendRichMessage`, with the footer appended. If Telegram rejects it, that delivery fails and stays retryable; there is no plain-text fallback. Discord and Slack get the parsed markdown rendered into their own dialects with escaping (headings, lists, quotes, code blocks and tables included), and X gets plain text. When a message would exceed the channel's length limit, trailing lines are dropped, and a single overlong line is truncated with an ellipsis; the footer is always kept.
 

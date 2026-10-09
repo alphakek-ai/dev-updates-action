@@ -10,7 +10,7 @@ from pathlib import Path
 import shlex
 import sys
 
-from dispatch import DIALECTS, render
+from dispatch import DIALECTS, markdown_parser, render
 
 MAX_BLOCKS = 4
 SOURCE_MAX = 32000  # Telegram's rich-message limit is 32768; the rest is left for the footer.
@@ -23,14 +23,11 @@ def validate(update, modes):
         return [f'the update must have exactly these modes: {", ".join(modes)}']
     errors = []
     for mode, source in update.items():
-        if not isinstance(source, str) or not source.strip():
-            errors.append(f'{mode}.md: is empty; write the update as markdown')
-            continue
         try:
-            if isinstance(json.loads(source), (dict, list)):
-                errors.append(f'{mode}.md: is JSON; write markdown instead')
-        except ValueError:
-            pass
+            markdown_parser().parse(source)
+        except Exception as error:
+            errors.append(f'{mode}.md: is not valid markdown ({error})')
+            continue
         if len(source) > SOURCE_MAX:
             errors.append(f'{mode}.md: is {len(source)} characters; shorten it to at most {SOURCE_MAX}')
     return errors

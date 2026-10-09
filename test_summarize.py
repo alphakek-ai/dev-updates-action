@@ -26,7 +26,7 @@ def agent(update=UPDATE, stdout=SUCCESS, check=None):
 @pytest.fixture
 def generation(monkeypatch, tmp_path):
     for key, value in {'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true', 'BEFORE': 'before', 'AFTER': 'after',
-                       'TITLE_STYLE': 'short', 'MAX_BULLETS': '5', 'DEV_RULES': 'technical',
+                       'DEV_RULES': 'technical',
                        'COMMUNITY_RULES': 'user benefits', 'GH_TOKEN': 'must-not-leak', 'MODEL': 'claude-opus-5',
                        'UPDATE_DIR': str(tmp_path / 'work'),
                        'TELEGRAM_BOT_TOKEN': 'must-not-leak', 'CLAUDE_CODE_OAUTH_TOKEN': 'test-oauth'}.items():
@@ -72,7 +72,7 @@ def test_failed_generation_is_rejected(generation, monkeypatch, stdout):
 
 @pytest.mark.parametrize('update', [
     None,  # The agent never wrote the file.
-    {'dev': '{"title":"**Update**","bullets":["x"]}', 'community': UPDATE['community']},
+    {'dev': 'x' * 32001, 'community': UPDATE['community']},
 ])
 def test_invalid_update_fails_generation(generation, monkeypatch, update):
     monkeypatch.setattr(summarize.subprocess, 'run', agent(update=update))

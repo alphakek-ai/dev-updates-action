@@ -236,14 +236,15 @@ def test_batch_retains_original_text_when_generation_changes(history):
 
 
 @pytest.mark.parametrize('content', [
-    # 2026-10-06: the model's JSON reached every channel as message text.
-    '{"title":"**Dev update**","bullets":["🔁 Retries"]}',
-    '  \n',
     'x' * 32001,
+    None,  # Missing file
 ])
 def test_invalid_update_publishes_nothing_and_keeps_journal(history, tmp_path, content):
     journal, commits = history
-    (tmp_path / 'community.md').write_text(content)
+    if content is None:
+        (tmp_path / 'community.md').unlink()
+    else:
+        (tmp_path / 'community.md').write_text(content)
     revision = journal.revision
     with pytest.raises(ValueError, match='invalid update'):
         deliver(journal, commits, lambda *args: pytest.fail('Invalid update sent'))

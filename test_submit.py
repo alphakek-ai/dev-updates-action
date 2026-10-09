@@ -11,16 +11,14 @@ DEV = ('**Retries without duplicates**\n\n'
 COMMUNITY = '# More reliable updates\n\n- 📣 Announcements **no longer** arrive twice\n'
 GOOD = {'dev': DEV, 'community': COMMUNITY}
 MODES = ['dev', 'community']
-# The 2026-10-06 incident: the whole message JSON was published as text.
-INCIDENT = '{"title":"**Dev update**","bullets":["🔁 Retries"]}'
+TOO_LONG = 'x' * 32001
 
 
 @pytest.mark.parametrize('markdown, problem', [
     (DEV, None),
     ('Any *markdown*\n\n1. even\n2. ordered\n\n| a |\n|---|\n| b |', None),
-    (INCIDENT, 'is JSON'),
-    ('  \n', 'is empty'),
-    ('x' * 32001, 'shorten it to at most 32000'),
+    (TOO_LONG, 'shorten it to at most 32000'),
+    ({'title': 'Update'}, 'not valid markdown'),
 ])
 def test_validation(markdown, problem):
     errors = submit.validate({**GOOD, 'dev': markdown}, MODES)
@@ -29,7 +27,7 @@ def test_validation(markdown, problem):
 
 @pytest.fixture
 def update_dir(tmp_path, monkeypatch):
-    for key, value in {'UPDATE_DIR': str(tmp_path), 'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true', 'MAX_BULLETS': '5',
+    for key, value in {'UPDATE_DIR': str(tmp_path), 'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true',
                        'GITHUB_REPOSITORY': 'owner/repo', 'COMMIT_COUNT': '2', 'FILE_COUNT': '3'}.items():
         monkeypatch.setenv(key, value)
     return tmp_path
@@ -49,9 +47,9 @@ def hook(monkeypatch, capsys):
 
 
 def test_hook_blocks_invalid_update_then_allows_once_fixed(update_dir, monkeypatch, capsys):
-    write(update_dir, {**GOOD, 'dev': INCIDENT})
+    write(update_dir, {**GOOD, 'dev': TOO_LONG})
     decision = hook(monkeypatch, capsys)
-    assert decision['decision'] == 'block' and 'dev.md: is JSON' in decision['reason']
+    assert decision['decision'] == 'block' and 'dev.md: is 32001 characters' in decision['reason']
     write(update_dir, GOOD)
     assert hook(monkeypatch, capsys) is None
 

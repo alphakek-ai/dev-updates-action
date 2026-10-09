@@ -21,13 +21,18 @@ TOO_LONG = 'x' * 32001
     ({'title': 'Update'}, 'not valid markdown'),
 ])
 def test_validation(markdown, problem):
-    errors = submit.validate({**GOOD, 'dev': markdown}, MODES)
+    errors = submit.validate({**GOOD, 'dev': markdown}, MODES, 32000)
     assert errors == [] if problem is None else [error for error in errors if problem in error] == errors != []
+
+
+@pytest.mark.parametrize('types, limit', [(['telegram', 'discord', 'slack'], 2000), (['twitter'], 32000), ([None], 32000)])
+def test_limit_is_the_smallest_configured_channel_limit(types, limit):
+    assert submit.max_length([{'type': kind} if kind else {} for kind in types]) == limit
 
 
 @pytest.fixture
 def update_dir(tmp_path, monkeypatch):
-    for key, value in {'UPDATE_DIR': str(tmp_path), 'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true'}.items():
+    for key, value in {'UPDATE_DIR': str(tmp_path), 'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true', 'UPDATE_LIMIT': '32000'}.items():
         monkeypatch.setenv(key, value)
     return tmp_path
 

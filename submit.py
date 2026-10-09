@@ -1,4 +1,4 @@
-"""Validate the generated <mode>.md updates: each exists, parses as markdown and fits Telegram's limit.
+"""Validate the generated <mode>.md updates: each exists, parses as markdown and fits the channel limits.
 
 The summarizing agent may run this script at any time; Claude Code runs it with
 --hook on Stop and --guard before Bash; publication re-validates before sending.
@@ -12,7 +12,8 @@ import shlex
 import sys
 
 MAX_BLOCKS = 4
-SOURCE_MAX = 32000  # Telegram's rich-message limit is 32768; the rest is left for the footer.
+# Telegram's rich-message limit is 32768, leaving room for the footer; X fits text itself in its sender.
+LIMITS = {'telegram': 32000, 'discord': 2000, 'slack': 3000}
 COMMAND = f'{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve()))}'
 
 
@@ -24,7 +25,13 @@ def markdown_parser():
     return MarkdownIt("commonmark").enable(["table", "strikethrough"])
 
 
-def validate(update, modes):
+def max_length(channels):
+    """The smallest limit among the configured channels."""
+    return min((LIMITS[ch.get('type', 'telegram')] for ch in channels if ch.get('type', 'telegram') in LIMITS),
+               default=LIMITS['telegram'])
+
+
+def validate(update, modes, limit):
     """Errors for an update mapping each active mode to its markdown; empty means it can be published."""
     if not isinstance(update, dict) or set(update) != set(modes):
         return [f'the update must have exactly these modes: {", ".join(modes)}']
@@ -35,12 +42,12 @@ def validate(update, modes):
         except Exception as error:
             errors.append(f'{mode}.md: is not valid markdown ({error})')
             continue
-        if len(source) > SOURCE_MAX:
-            errors.append(f'{mode}.md: is {len(source)} characters; shorten it to at most {SOURCE_MAX}')
+        if len(source) > limit:
+            errors.append(f'{mode}.md: is {len(source)} characters; shorten it to at most {limit}')
     return errors
 
 
-def load(directory, modes):
+def load(directory, modes, limit):
     """Read and validate <mode>.md files; returns (update, errors)."""
     update, errors = {}, []
     for mode in modes:
@@ -50,13 +57,13 @@ def load(directory, modes):
             errors.append(f'{Path(directory) / f"{mode}.md"}: does not exist; write it with the Write tool')
         except (OSError, UnicodeDecodeError) as error:
             errors.append(f'{Path(directory) / f"{mode}.md"}: cannot be read ({error}); rewrite it')
-    return update, errors or validate(update, modes)
+    return update, errors or validate(update, modes, limit)
 
 
 def check():
     directory = Path(os.environ['UPDATE_DIR'])
     modes = [mode for mode in ('dev', 'community') if os.environ.get('HAS_' + mode.upper()) == 'true']
-    return directory, modes, *load(directory, modes)
+    return directory, modes, *load(directory, modes, int(os.environ['UPDATE_LIMIT']))
 
 
 def stop_hook():

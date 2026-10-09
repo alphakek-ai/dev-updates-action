@@ -122,7 +122,7 @@ def publish(journal, channels, before, after, update_dir, repo, now, senders=DIS
         if state['last_sha'] != before or not ancestor(before, after) or before == after:
             raise RuntimeError('Checkpoint changed after preparation; refusing stale publication')
         modes = {_normalize_mode(ch.get('mode', 'dev')) for ch in channels}
-        summaries, errors = submit.load(update_dir, modes)
+        summaries, errors = submit.load(update_dir, modes, submit.max_length(channels))
         if errors:
             raise ValueError('Refusing to publish an invalid update:\n' + '\n'.join(errors))
         batch = state['batch'] = {

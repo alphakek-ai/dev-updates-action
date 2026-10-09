@@ -28,7 +28,7 @@ def generation(monkeypatch, tmp_path):
     for key, value in {'HAS_DEV': 'true', 'HAS_COMMUNITY': 'true', 'BEFORE': 'before', 'AFTER': 'after',
                        'DEV_RULES': 'technical',
                        'COMMUNITY_RULES': 'user benefits', 'GH_TOKEN': 'must-not-leak',
-                       'UPDATE_DIR': str(tmp_path / 'work'),
+                       'UPDATE_DIR': str(tmp_path / 'work'), 'CHANNELS': '- name: team\n  type: telegram\n',
                        'TELEGRAM_BOT_TOKEN': 'must-not-leak', 'CLAUDE_CODE_OAUTH_TOKEN': 'test-oauth'}.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(summarize.subprocess, 'check_output', lambda *args, **kwargs: 'change context')

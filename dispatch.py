@@ -4,7 +4,7 @@ Reads channel config from CHANNELS env var (YAML),
 loads the appropriate summary (dev/community),
 and sends to each channel via its native API.
 
-Supported channel types: telegram, discord, slack, twitter.
+Supported channel types: telegram, twitter.
 """
 
 import json
@@ -54,18 +54,7 @@ def parse_channels(yaml_text: str) -> list[dict]:
     return channels
 
 
-def load_summary(mode: str) -> str:
-    """Load summary markdown file. Returns empty string if not found."""
-    path = f"/tmp/summary_{mode}.md"
-    try:
-        return open(path).read().strip()
-    except FileNotFoundError:
-        return ""
-
-
 def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
-    from telegramify_markdown import markdownify
-
     chat_id = ch.get("chat_id", "")
     thread_id = ch.get("thread_id")
     bot_token_env = ch.get("bot_token_env", "TELEGRAM_BOT_TOKEN")
@@ -79,23 +68,15 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
         footer = f"{repo_name} · {commits} commit(s) · {files} file(s)"
     else:
         footer = f"[{repo_name} · {commits} commit(s) · {files} file(s)](https://github.com/{repo})"
-    md_text = f"{content}\n\n{footer}"
-    text = markdownify(md_text)
-
-    if len(text) > 4000:
-        text = text[:3997] + "..."
-
     payload: dict = {
         "chat_id": chat_id,
-        "parse_mode": "MarkdownV2",
-        "text": text,
-        "disable_web_page_preview": True,
+        "rich_message": {"markdown": f"{content}\n\n{footer}"},
     }
     if thread_id:
         payload["message_thread_id"] = int(thread_id)
 
     req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
+        f"https://api.telegram.org/bot{token}/sendRichMessage",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
@@ -103,40 +84,6 @@ def send_telegram(ch: dict, content: str, repo: str, repo_name: str, commits: st
         result = json.load(response)
     if not result.get('ok') or not result.get('result', {}).get('message_id'):
         raise RuntimeError('Telegram did not confirm a message ID')
-
-
-def send_discord(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
-    webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
-    if not webhook_url:
-        raise DeliveryNotAttempted("No webhook URL configured")
-
-    text = f"{content}\n\n[{repo_name}](https://github.com/{repo}) · {commits} commit(s) · {files} file(s)"
-    payload = {"content": text[:2000]}
-
-    req = urllib.request.Request(
-        webhook_url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30):
-        pass
-
-
-def send_slack(ch: dict, content: str, repo: str, repo_name: str, commits: str, files: str) -> None:
-    webhook_url = ch.get("webhook_url") or os.environ.get(ch.get("webhook_url_env", ""), "")
-    if not webhook_url:
-        raise DeliveryNotAttempted("No webhook URL configured")
-
-    text = f"{content}\n\n<https://github.com/{repo}|{repo_name}> · {commits} commit(s) · {files} file(s)"
-    payload = {"text": text[:3000]}
-
-    req = urllib.request.Request(
-        webhook_url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30):
-        pass
 
 
 def _limit_cashtags(text: str) -> str:
@@ -213,7 +160,5 @@ def send_twitter(ch: dict, content: str, repo: str, repo_name: str, commits: str
 
 DISPATCHERS = {
     "telegram": send_telegram,
-    "discord": send_discord,
-    "slack": send_slack,
     "twitter": send_twitter,
 }

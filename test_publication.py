@@ -15,7 +15,9 @@ PUBLICATION_SCRIPT = Path(__file__).with_name('publication.py').resolve()
 
 CHANNELS = [{'name': 'team', 'type': 'telegram', 'mode': 'dev'},
             {'name': 'public', 'type': 'telegram', 'mode': 'community'}]
-SUMMARIES = {'dev': 'Technical update', 'community': 'Public update'}
+SUMMARIES = {'dev': '**Technical update**\n\n- 🔧 `publish` journals first\n',
+             'community': '**Public update**\n\n- 📣 No duplicate posts\n'}
+UPDATE_DIR = '..'  # Beside the work tree, as the action keeps it in RUNNER_TEMP.
 
 
 @pytest.fixture
@@ -36,11 +38,13 @@ def history(tmp_path, monkeypatch):
     journal = Journal('refs/dev-updates/test')
     journal.state = {'version': 1, 'last_sha': commits[0], 'last_at': 100, 'batch': None}
     journal.save()
+    for mode, markdown in SUMMARIES.items():
+        (tmp_path / f'{mode}.md').write_text(markdown)
     return journal, commits
 
 
 def deliver(journal, commits, sender):
-    return publish(journal, CHANNELS, commits[0], commits[1], SUMMARIES,
+    return publish(journal, CHANNELS, commits[0], commits[1], UPDATE_DIR,
                    'owner/repo', lambda: 200, {'telegram': sender})
 
 
@@ -63,10 +67,9 @@ def test_prepare_cli_modes_match_publication(history, tmp_path, config, expected
     detected = {mode for mode in ('dev', 'community') if values[f'has_{mode}'] == 'true'}
     assert detected == expected
     calls = []
-    publish(journal, parse_channels(config), values['before'], values['after'],
-            {mode: f'{mode} summary' for mode in detected}, 'owner/repo', lambda: 200,
-            {'telegram': lambda ch, content, *args: calls.append(content)})
-    assert set(calls) == {f'{mode} summary' for mode in expected}
+    publish(journal, parse_channels(config), values['before'], values['after'], UPDATE_DIR,
+            'owner/repo', lambda: 200, {'telegram': lambda ch, content, *args: calls.append(content)})
+    assert set(calls) == {SUMMARIES[mode] for mode in expected}
     assert journal.load()['last_sha'] == commits[-1]
 
 
@@ -224,9 +227,26 @@ def test_batch_retains_original_text_when_generation_changes(history):
     with pytest.raises(RuntimeError):
         deliver(journal, commits, reject)
     texts = []
-    publish(journal, CHANNELS, commits[0], commits[1], {}, 'owner/repo', lambda: 201,
+    publish(journal, CHANNELS, commits[0], commits[1], 'missing.json', 'owner/repo', lambda: 201,
             {'telegram': lambda ch, content, *args: texts.append(content)})
     assert texts == [SUMMARIES['dev'], SUMMARIES['community']]
+
+
+@pytest.mark.parametrize('content', [
+    'x' * 1001,
+    None,  # Missing file
+])
+def test_invalid_update_publishes_nothing_and_keeps_journal(history, tmp_path, content):
+    journal, commits = history
+    if content is None:
+        (tmp_path / 'community.md').unlink()
+    else:
+        (tmp_path / 'community.md').write_text(content)
+    revision = journal.revision
+    with pytest.raises(ValueError, match='invalid update'):
+        deliver(journal, commits, lambda *args: pytest.fail('Invalid update sent'))
+    assert journal.load() == {'version': 1, 'last_sha': commits[0], 'last_at': 100, 'batch': None}
+    assert journal.revision == revision
 
 
 def test_optional_definitive_rejection_does_not_block_completed_batch(history):
@@ -235,7 +255,7 @@ def test_optional_definitive_rejection_does_not_block_completed_batch(history):
     def sender(ch, *args):
         if ch['name'] == 'public':
             raise urllib.error.HTTPError('redacted', 403, '', {}, None)
-    publish(journal, channels, commits[0], commits[1], SUMMARIES, 'owner/repo', lambda: 201,
+    publish(journal, channels, commits[0], commits[1], UPDATE_DIR, 'owner/repo', lambda: 201,
             {'telegram': sender})
     assert journal.load()['last_sha'] == commits[1]
 
@@ -300,11 +320,11 @@ def test_optional_outage_cannot_block_next_required_publication(history, error):
         calls.append(ch['name'])
         if ch['name'] == 'public':
             raise error
-    publish(journal, channels, commits[0], commits[1], SUMMARIES, 'owner/repo', lambda: 201,
+    publish(journal, channels, commits[0], commits[1], UPDATE_DIR, 'owner/repo', lambda: 201,
             {'telegram': sender})
     result = prepare(journal, commits[2], '', 202, channels)
     assert result['before'] == commits[1]
-    publish(journal, channels, commits[1], commits[2], SUMMARIES, 'owner/repo', lambda: 202,
+    publish(journal, channels, commits[1], commits[2], UPDATE_DIR, 'owner/repo', lambda: 202,
             {'telegram': sender})
     assert calls == ['team', 'public', 'team', 'public']
     assert journal.load()['last_sha'] == commits[2]
@@ -317,9 +337,9 @@ def test_optional_pending_after_crash_is_abandoned_not_resent(history):
         if ch['name'] == 'public':
             raise SystemExit('Process killed before acknowledgement')
     with pytest.raises(SystemExit):
-        publish(journal, channels, commits[0], commits[1], SUMMARIES, 'owner/repo', lambda: 201,
+        publish(journal, channels, commits[0], commits[1], UPDATE_DIR, 'owner/repo', lambda: 201,
                 {'telegram': crash})
-    publish(journal, channels, commits[0], commits[1], {}, 'owner/repo', lambda: 202,
+    publish(journal, channels, commits[0], commits[1], 'missing.json', 'owner/repo', lambda: 202,
             {'telegram': lambda *args: pytest.fail('Must not resend')})
     assert journal.load()['last_sha'] == commits[1]
 
@@ -351,7 +371,7 @@ def test_all_optional_uncertain_deliveries_are_never_replayed(history):
         calls.append(ch['name'])
         raise TimeoutError('Accepted remotely but acknowledgement lost')
     with pytest.raises(RuntimeError, match='No confirmed deliveries'):
-        publish(journal, channels, commits[0], commits[1], SUMMARIES, 'owner/repo', lambda: 201,
+        publish(journal, channels, commits[0], commits[1], UPDATE_DIR, 'owner/repo', lambda: 201,
                 {'telegram': timeout})
     assert prepare(journal, commits[1], '', 202, channels) == {'skip': 'true'}
     assert prepare(journal, commits[2], '', 202, channels)['before'] == commits[1]

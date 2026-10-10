@@ -1,6 +1,5 @@
-"""Tests for dispatch.py — channel parsing, summary loading."""
+"""Tests for dispatch.py — channel parsing and Telegram delivery."""
 
-import os
 import io
 import json
 
@@ -11,7 +10,6 @@ from dispatch import (
     _is_required,
     _limit_cashtags,
     _normalize_mode,
-    load_summary,
     parse_channels,
 )
 
@@ -37,6 +35,8 @@ def test_telegram_success_consumes_acknowledgement(monkeypatch):
     monkeypatch.setattr(dispatch.urllib.request, 'urlopen', post)
     dispatch.send_telegram({'chat_id': 'test'}, 'Update', 'owner/repo', 'repo', '1', '1')
     assert requests[0][0]['chat_id'] == 'test'
+    assert requests[0][0]['rich_message'] == {
+        'markdown': 'Update\n\n[repo · 1 commit(s) · 1 file(s)](https://github.com/owner/repo)'}
     assert requests[0][1] == 30
 
 
@@ -88,17 +88,16 @@ class TestParseChannels:
           chat_id: "@mychannel"
           mode: public
 
-        - name: discord-dev
-          type: discord
-          webhook_url_env: DISCORD_WEBHOOK
-          mode: private
+        - name: x
+          type: twitter
+          mode: public
         """
         channels = parse_channels(yaml)
         assert len(channels) == 3
         assert channels[0]["name"] == "team"
         assert channels[1]["name"] == "public"
         assert channels[1]["chat_id"] == "@mychannel"
-        assert channels[2]["type"] == "discord"
+        assert channels[2]["type"] == "twitter"
 
     def test_empty_input(self):
         assert parse_channels("") == []
@@ -188,26 +187,3 @@ class TestIsRequired:
         # If parse_channels is ever swapped for real YAML, native bools must work.
         assert _is_required({"required": True}) is True
         assert _is_required({"required": False}) is False
-
-
-class TestLoadSummary:
-    def test_returns_empty_for_missing_file(self):
-        assert load_summary("nonexistent_mode_xyz") == ""
-
-    def test_loads_content(self):
-        with open("/tmp/summary_testmode.md", "w") as f:
-            f.write("📦 **My Update**\n\n🔧 Fixed a bug\n🚀 Added a feature")
-
-        content = load_summary("testmode")
-        assert "My Update" in content
-        assert "Fixed a bug" in content
-        assert "Added a feature" in content
-        os.unlink("/tmp/summary_testmode.md")
-
-    def test_strips_whitespace(self):
-        with open("/tmp/summary_striptest.md", "w") as f:
-            f.write("  \n  content here  \n  ")
-
-        content = load_summary("striptest")
-        assert content == "content here"
-        os.unlink("/tmp/summary_striptest.md")

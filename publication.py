@@ -9,7 +9,8 @@ import re
 import subprocess
 import time
 
-from dispatch import DISPATCHERS, DeliveryNotAttempted, _is_required, _normalize_mode, load_summary, parse_channels
+from dispatch import DISPATCHERS, DeliveryNotAttempted, _is_required, _normalize_mode, parse_channels
+import submit
 
 
 def git(*args, input=None):
@@ -113,7 +114,7 @@ def prepare(journal, head, cooldown, now, channels):
     return {'skip': 'false', 'resume': 'false', 'before': last, 'after': head}
 
 
-def publish(journal, channels, before, after, summaries, repo, now, senders=DISPATCHERS):
+def publish(journal, channels, before, after, update_dir, repo, now, senders=DISPATCHERS):
     state = journal.load()
     fingerprint = channel_fingerprint(channels)
     batch = state['batch']
@@ -121,8 +122,9 @@ def publish(journal, channels, before, after, summaries, repo, now, senders=DISP
         if state['last_sha'] != before or not ancestor(before, after) or before == after:
             raise RuntimeError('Checkpoint changed after preparation; refusing stale publication')
         modes = {_normalize_mode(ch.get('mode', 'dev')) for ch in channels}
-        if any(not summaries.get(mode) for mode in modes):
-            raise ValueError('Missing generated summary')
+        summaries, errors = submit.load(update_dir, modes)
+        if errors:
+            raise ValueError('Refusing to publish an invalid update:\n' + '\n'.join(errors))
         batch = state['batch'] = {
             'before': before, 'after': after, 'channels': fingerprint,
             'summaries': summaries, 'deliveries': {ch['name']: 'ready' for ch in channels},
@@ -233,8 +235,7 @@ def main():
                 output.write(f'{key}={value}\n')
         print(json.dumps(result))
     else:
-        publish(journal, channels, os.environ['BEFORE'], os.environ['AFTER'],
-                {mode: load_summary(mode) for mode in ('dev', 'community')},
+        publish(journal, channels, os.environ['BEFORE'], os.environ['AFTER'], os.environ['UPDATE_DIR'],
                 os.environ['GITHUB_REPOSITORY'], time.time)
 
 
